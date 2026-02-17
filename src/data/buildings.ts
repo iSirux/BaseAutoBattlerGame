@@ -1,0 +1,68 @@
+import type { BuildingDef } from '@/core/types';
+
+export const BUILDING_DEFS: Record<string, BuildingDef> = {
+  lumber_mill: {
+    type: 'lumber_mill',
+    name: 'Lumber Mill',
+    cost: { wood: 20, stone: 10 },
+    requiredDeposit: 'wood',
+    produces: 'wood',
+    productionRate: 5,
+  },
+  quarry: {
+    type: 'quarry',
+    name: 'Quarry',
+    cost: { wood: 20, stone: 10 },
+    requiredDeposit: 'stone',
+    produces: 'stone',
+    productionRate: 4,
+  },
+  iron_mine: {
+    type: 'iron_mine',
+    name: 'Iron Mine',
+    cost: { wood: 20, stone: 10 },
+    requiredDeposit: 'iron',
+    produces: 'iron',
+    productionRate: 3,
+  },
+  barracks: {
+    type: 'barracks',
+    name: 'Barracks',
+    cost: { wood: 30, stone: 20 },
+    requiredDeposit: null,
+    produces: null,
+    productionRate: 0,
+  },
+  archery_range: {
+    type: 'archery_range',
+    name: 'Archery Range',
+    cost: { wood: 25, iron: 15 },
+    requiredDeposit: null,
+    produces: null,
+    productionRate: 0,
+  },
+  blacksmith: {
+    type: 'blacksmith',
+    name: 'Blacksmith',
+    cost: { stone: 25, iron: 15 },
+    requiredDeposit: null,
+    produces: null,
+    productionRate: 0,
+  },
+  kennel: {
+    type: 'kennel',
+    name: 'Kennel',
+    cost: { wood: 25 },
+    requiredDeposit: null,
+    produces: null,
+    productionRate: 0,
+  },
+  medical_tent: {
+    type: 'medical_tent',
+    name: 'Medical Tent',
+    cost: { wood: 20, stone: 15, iron: 10 },
+    requiredDeposit: null,
+    produces: null,
+    productionRate: 0,
+  },
+};

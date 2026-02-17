@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Base Auto Battler</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; }
+    #game-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    #game-canvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+    }
+    #ui-overlay {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      color: #e0d8c0;
+    }
+    #ui-overlay > * { pointer-events: auto; }
+
+    /* ── Resource Bar ── */
+    #resource-bar {
+      position: absolute;
+      top: 8px; left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 14px;
+      background: rgba(30, 20, 10, 0.85);
+      border: 1px solid rgba(200, 160, 60, 0.4);
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-size: 13px;
+    }
+    .resource-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      position: relative;
+      cursor: default;
+    }
+    .resource-item[data-tip]::after {
+      content: attr(data-tip);
+      position: absolute;
+      top: 100%; left: 50%;
+      transform: translateX(-50%);
+      margin-top: 6px;
+      background: rgba(30, 20, 10, 0.95);
+      border: 1px solid rgba(200, 160, 60, 0.5);
+      border-radius: 5px;
+      padding: 5px 9px;
+      font-size: 11px;
+      color: #f0e6d3;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      z-index: 20;
+    }
+    .resource-item[data-tip]:hover::after { opacity: 1; }
+    .resource-icon {
+      width: 14px; height: 14px;
+      border-radius: 3px;
+      display: inline-block;
+    }
+    .res-delta {
+      font-size: 10px;
+      opacity: 0.7;
+    }
+    .res-delta.positive { color: #80e060; }
+    .res-delta.negative { color: #e06060; }
+    .res-delta.zero { color: #a0a0a0; }
+
+    /* ── Base HP Bar ── */
+    #base-hp-bar {
+      position: absolute;
+      top: 46px; left: 50%;
+      transform: translateX(-50%);
+      width: 300px; height: 6px;
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    #base-hp-fill {
+      height: 100%;
+      background: #c0392b;
+      transition: width 0.3s;
+      border-radius: 3px;
+    }
+
+    /* ── Phase / Wave indicator ── */
+    #phase-bar {
+      position: absolute;
+      top: 8px; right: 16px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      background: rgba(30, 20, 10, 0.85);
+      border: 1px solid rgba(200, 160, 60, 0.4);
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-size: 13px;
+    }
+    #phase-label {
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      font-weight: bold;
+      font-size: 12px;
+      color: #c8a03c;
+    }
+
+    /* ── Hex Hover Tooltip ── */
+    #hex-hover {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(30, 20, 10, 0.9);
+      border: 1px solid rgba(200, 160, 60, 0.4);
+      border-radius: 5px;
+      padding: 4px 8px;
+      font-size: 12px;
+      white-space: nowrap;
+      display: none;
+      z-index: 10;
+    }
+    #hex-hover.visible { display: block; }
+
+    /* ── Hex Selection Panel ── */
+    #hex-info {
+      position: absolute;
+      top: 70px; right: 16px;
+      background: rgba(30, 20, 10, 0.9);
+      border: 1px solid rgba(200, 160, 60, 0.4);
+      border-radius: 6px;
+      padding: 12px 16px;
+      font-size: 14px;
+      width: 220px;
+      display: none;
+      line-height: 1.5;
+    }
+    #hex-info.visible { display: block; }
+    #hex-info .info-header {
+      font-size: 16px;
+      font-weight: bold;
+      margin-bottom: 6px;
+      border-bottom: 1px solid rgba(200, 160, 60, 0.3);
+      padding-bottom: 5px;
+      color: #c8a03c;
+    }
+    #hex-info .info-row {
+      font-size: 13px;
+      color: rgba(240, 230, 211, 0.8);
+    }
+    #hex-info .info-section {
+      margin-top: 6px;
+      border-top: 1px solid rgba(200, 160, 60, 0.3);
+      padding-top: 5px;
+    }
+
+    /* ── Debug Panel ── */
+    #debug-panel {
+      position: absolute;
+      top: 8px; left: 0;
+      display: flex;
+      flex-direction: row;
+    }
+    #debug-tab {
+      background: rgba(30, 20, 10, 0.85);
+      border: 1px solid rgba(200, 160, 60, 0.4);
+      border-left: none;
+      border-radius: 0 6px 6px 0;
+      padding: 4px 8px;
+      cursor: pointer;
+      font-size: 11px;
+      color: #c8a03c;
+      white-space: nowrap;
+    }
+    #debug-tab:hover { background: rgba(200, 160, 60, 0.25); }
+    #debug-content {
+      width: 0; height: 0;
+      overflow: hidden;
+      background: rgba(30, 20, 10, 0.9);
+      border: 1px solid rgba(200, 160, 60, 0.4);
+      border-left: none;
+      border-radius: 0 6px 6px 0;
+      transition: width 0.2s ease, height 0.2s ease;
+      white-space: nowrap;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    #debug-panel.debug-open #debug-content {
+      width: 240px;
+      height: auto;
+      padding: 10px 12px;
+      overflow-y: auto;
+      max-height: 80vh;
+    }
+    #debug-panel.debug-open #debug-tab { display: none; }
+    .debug-section {
+      margin-bottom: 8px;
+      border-bottom: 1px solid rgba(200, 160, 60, 0.2);
+      padding-bottom: 6px;
+    }
+    .debug-section:last-child { border-bottom: none; }
+    .debug-section-title {
+      color: #c8a03c;
+      font-weight: bold;
+      font-size: 11px;
+      text-transform: uppercase;
+      margin-bottom: 3px;
+    }
+    .debug-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .debug-val { color: #f0e6d3; }
+    .debug-lbl { color: rgba(240, 230, 211, 0.6); }
+    #debug-close {
+      background: none; border: none;
+      color: rgba(240, 230, 211, 0.5);
+      cursor: pointer;
+      font-size: 14px;
+      float: right;
+      padding: 0 2px;
+      line-height: 1;
+    }
+    #debug-close:hover { color: #f0e6d3; }
+    .debug-btn {
+      background: rgba(200, 160, 60, 0.2);
+      border: 1px solid rgba(200, 160, 60, 0.3);
+      color: #f0e6d3;
+      border-radius: 4px;
+      padding: 3px 8px;
+      cursor: pointer;
+      font-size: 11px;
+      margin: 2px 2px 2px 0;
+    }
+    .debug-btn:hover { background: rgba(200, 160, 60, 0.4); }
+    .debug-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 3px 0;
+    }
+    .debug-checkbox input { accent-color: #c8a03c; }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <div id="game-canvas"></div>
+    <div id="ui-overlay">
+
+      <!-- Resource Bar -->
+      <div id="resource-bar">
+        <div class="resource-item" data-tip="Used for buildings, basic units, and training.">
+          <span class="resource-icon" style="background:#c49a3c;"></span>
+          <span>Wood: <span id="res-wood">0</span></span>
+          <span class="res-delta" id="res-delta-wood"></span>
+        </div>
+        <div class="resource-item" data-tip="Used for fortifications and advanced buildings.">
+          <span class="resource-icon" style="background:#b0b0b0;"></span>
+          <span>Stone: <span id="res-stone">0</span></span>
+          <span class="res-delta" id="res-delta-stone"></span>
+        </div>
+        <div class="resource-item" data-tip="Used for equipment crafting and elite units.">
+          <span class="resource-icon" style="background:#7a8b9e;"></span>
+          <span>Iron: <span id="res-iron">0</span></span>
+          <span class="res-delta" id="res-delta-iron"></span>
+        </div>
+        <div class="resource-item" data-tip="Battle Points. Earned from waves, spent on tech upgrades.">
+          <span class="resource-icon" style="background:#e8c840;"></span>
+          <span>BP: <span id="res-bp">0</span></span>
+        </div>
+      </div>
+
+      <!-- Base HP Bar -->
+      <div id="base-hp-bar">
+        <div id="base-hp-fill" style="width: 100%;"></div>
+      </div>
+
+      <!-- Phase / Wave -->
+      <div id="phase-bar">
+        <span id="phase-label">Build</span>
+        <span id="wave-label">Wave 1</span>
+      </div>
+
+      <!-- Hex Hover Tooltip -->
+      <div id="hex-hover"></div>
+
+      <!-- Hex Selection Detail Panel -->
+      <div id="hex-info">
+        <div id="hex-info-content"></div>
+      </div>
+
+      <!-- Debug Panel -->
+      <div id="debug-panel">
+        <div id="debug-tab">Debug</div>
+        <div id="debug-content">
+          <button id="debug-close">&times;</button>
+          <div class="debug-section">
+            <div class="debug-section-title">Game</div>
+            <div class="debug-row"><span class="debug-lbl">Phase</span><span class="debug-val" id="dbg-phase">build</span></div>
+            <div class="debug-row"><span class="debug-lbl">Wave</span><span class="debug-val" id="dbg-wave">1</span></div>
+            <div class="debug-row"><span class="debug-lbl">Base HP</span><span class="debug-val" id="dbg-basehp">100/100</span></div>
+            <div class="debug-row"><span class="debug-lbl">Units</span><span class="debug-val" id="dbg-units">0</span></div>
+            <div class="debug-row"><span class="debug-lbl">Buildings</span><span class="debug-val" id="dbg-buildings">0</span></div>
+            <div class="debug-row"><span class="debug-lbl">FPS</span><span class="debug-val" id="dbg-fps">0</span></div>
+          </div>
+          <div class="debug-section">
+            <div class="debug-section-title">Actions</div>
+            <div>
+              <button class="debug-btn" id="dbg-add-resources">+Resources</button>
+              <button class="debug-btn" id="dbg-add-unit">+Swordsman</button>
+            </div>
+            <div>
+              <button class="debug-btn" id="dbg-add-bp">+10 BP</button>
+              <button class="debug-btn" id="dbg-heal-base">Heal Base</button>
+            </div>
+          </div>
+          <div class="debug-section">
+            <div class="debug-section-title">Data</div>
+            <div>
+              <button class="debug-btn" id="dbg-dump-state">Dump State</button>
+              <button class="debug-btn" id="dbg-new-seed">New Seed</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

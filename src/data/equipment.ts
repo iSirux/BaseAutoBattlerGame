@@ -1,0 +1,123 @@
+import type { EquipmentDef } from '@/core/types';
+
+export const EQUIPMENT_DEFS: Record<string, EquipmentDef> = {
+  // ── Weapons ──
+  rock: {
+    id: 'rock',
+    name: 'Rock',
+    slot: 'weapon',
+    tier: 'crude',
+    craftCost: { iron: 0 },
+    modifiers: { attack: 2 },
+  },
+  club: {
+    id: 'club',
+    name: 'Club',
+    slot: 'weapon',
+    tier: 'crude',
+    craftCost: { iron: 3 },
+    modifiers: { attack: 3 },
+  },
+  short_sword: {
+    id: 'short_sword',
+    name: 'Short Sword',
+    slot: 'weapon',
+    tier: 'basic',
+    craftCost: { iron: 8 },
+    modifiers: { attack: 5 },
+  },
+  longsword: {
+    id: 'longsword',
+    name: 'Longsword',
+    slot: 'weapon',
+    tier: 'refined',
+    craftCost: { iron: 15 },
+    modifiers: { attack: 8 },
+  },
+  war_axe: {
+    id: 'war_axe',
+    name: 'War Axe',
+    slot: 'weapon',
+    tier: 'masterwork',
+    craftCost: { iron: 25 },
+    modifiers: { attack: 12 },
+  },
+  short_bow: {
+    id: 'short_bow',
+    name: 'Short Bow',
+    slot: 'weapon',
+    tier: 'basic',
+    craftCost: { iron: 5 },
+    modifiers: { attack: 4 },
+  },
+  longbow: {
+    id: 'longbow',
+    name: 'Longbow',
+    slot: 'weapon',
+    tier: 'refined',
+    craftCost: { iron: 12 },
+    modifiers: { attack: 7 },
+  },
+
+  // ── Armor ──
+  padded_armor: {
+    id: 'padded_armor',
+    name: 'Padded Armor',
+    slot: 'armor',
+    tier: 'crude',
+    craftCost: { iron: 3 },
+    modifiers: { maxHp: 5, hp: 5 },
+  },
+  leather_armor: {
+    id: 'leather_armor',
+    name: 'Leather Armor',
+    slot: 'armor',
+    tier: 'basic',
+    craftCost: { iron: 8 },
+    modifiers: { maxHp: 10, hp: 10 },
+  },
+  chainmail: {
+    id: 'chainmail',
+    name: 'Chainmail',
+    slot: 'armor',
+    tier: 'refined',
+    craftCost: { iron: 15 },
+    modifiers: { maxHp: 18, hp: 18 },
+  },
+  plate_armor: {
+    id: 'plate_armor',
+    name: 'Plate Armor',
+    slot: 'armor',
+    tier: 'masterwork',
+    craftCost: { iron: 25 },
+    modifiers: { maxHp: 28, hp: 28, speed: -1 },
+  },
+
+  // ── Shields ──
+  buckler: {
+    id: 'buckler',
+    name: 'Buckler',
+    slot: 'shield',
+    tier: 'basic',
+    craftCost: { iron: 6 },
+    modifiers: { maxHp: 5, hp: 5 },
+  },
+  kite_shield: {
+    id: 'kite_shield',
+    name: 'Kite Shield',
+    slot: 'shield',
+    tier: 'refined',
+    craftCost: { iron: 12 },
+    modifiers: { maxHp: 10, hp: 10 },
+    bonusLives: 1,
+  },
+  tower_shield: {
+    id: 'tower_shield',
+    name: 'Tower Shield',
+    slot: 'shield',
+    tier: 'masterwork',
+    craftCost: { iron: 20 },
+    modifiers: { maxHp: 15, hp: 15, speed: -1 },
+    bonusLives: 1,
+  },
+};
