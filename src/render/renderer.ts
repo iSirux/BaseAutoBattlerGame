@@ -1,6 +1,7 @@
 import { Application, Container, Graphics } from 'pixi.js';
 import type { GameState, HexTile, InputState, HexCoord } from '@/core/types';
-import { hexToPixel, hexCorners, pixelToHex, hexKey } from '@/hex/coords';
+import { hexToPixel, hexCorners, pixelToHex, hexKey, hexNeighbors } from '@/hex/coords';
+import { BUILDING_DEFS } from '@/data/buildings';
 
 const HEX_SIZE = 32;
 
@@ -25,7 +26,6 @@ const BUILDING_COLORS: Record<string, number> = {
   archery_range: 0x6b8e23,
   blacksmith: 0x4a4a4a,
   kennel: 0x8b6c42,
-  medical_tent: 0xd4d4d4,
 };
 
 export class GameRenderer {
@@ -43,6 +43,10 @@ export class GameRenderer {
 
   private hoverGfx: Graphics;
   private selectGfx: Graphics;
+  private validPlacementGfx: Graphics;
+
+  /** Callback when a placement click occurs */
+  onPlacementClick: ((coord: HexCoord) => void) | null = null;
 
   constructor() {
     this.app = new Application();
@@ -53,10 +57,12 @@ export class GameRenderer {
 
     this.hoverGfx = new Graphics();
     this.selectGfx = new Graphics();
+    this.validPlacementGfx = new Graphics();
 
     this.inputState = {
       hoveredHex: null,
       selectedHex: null,
+      placingBuilding: null,
       lastMouseX: 0,
       lastMouseY: 0,
       isPanning: false,
@@ -74,6 +80,7 @@ export class GameRenderer {
     this.worldContainer.addChild(this.gridLayer);
     this.worldContainer.addChild(this.buildingLayer);
     this.worldContainer.addChild(this.highlightLayer);
+    this.highlightLayer.addChild(this.validPlacementGfx);
     this.highlightLayer.addChild(this.hoverGfx);
     this.highlightLayer.addChild(this.selectGfx);
     this.app.stage.addChild(this.worldContainer);
@@ -90,7 +97,11 @@ export class GameRenderer {
 
     canvas.addEventListener('pointerdown', (e) => {
       if (e.button === 2 || (e.button === 0 && e.ctrlKey)) {
-        // Right-click or ctrl+click: pan
+        // Right-click: cancel placement or pan
+        if (this.inputState.placingBuilding) {
+          this.inputState.placingBuilding = null;
+          return;
+        }
         this.isPanning = true;
         this.inputState.isPanning = true;
         this.panStart = { x: e.clientX, y: e.clientY };
@@ -102,6 +113,13 @@ export class GameRenderer {
         this.isPanning = true;
         this.panStart = { x: e.clientX, y: e.clientY };
         this.dragDistance = 0;
+      }
+    });
+
+    // Escape cancels placement mode
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.inputState.placingBuilding) {
+        this.inputState.placingBuilding = null;
       }
     });
 
@@ -167,6 +185,12 @@ export class GameRenderer {
     const wp = this.screenToWorld(sx, sy);
     const coord = pixelToHex(wp.x, wp.y, HEX_SIZE);
 
+    // If in placement mode, delegate to placement callback
+    if (this.inputState.placingBuilding) {
+      this.onPlacementClick?.(coord);
+      return;
+    }
+
     // Toggle selection: click same hex = deselect
     const sel = this.inputState.selectedHex;
     if (sel && sel.q === coord.q && sel.r === coord.r) {
@@ -189,10 +213,42 @@ export class GameRenderer {
   updateHighlights(state: GameState): void {
     this.hoverGfx.clear();
     this.selectGfx.clear();
+    this.validPlacementGfx.clear();
 
     const hovered = this.inputState.hoveredHex;
     const selected = this.inputState.selectedHex;
+    const placing = this.inputState.placingBuilding;
 
+    // Placement mode: highlight valid tiles
+    if (placing) {
+      const validTiles = this.getValidPlacementTiles(state, placing);
+      for (const key of validTiles) {
+        const tile = state.grid.tiles.get(key);
+        if (!tile) continue;
+        const center = hexToPixel(tile.coord, HEX_SIZE);
+        const corners = hexCorners(center, HEX_SIZE - 1);
+        this.validPlacementGfx.poly(corners.flatMap((c) => [c.x, c.y]));
+        this.validPlacementGfx.fill({ color: 0x40c040, alpha: 0.2 });
+        this.validPlacementGfx.stroke({ color: 0x40c040, width: 1.5, alpha: 0.5 });
+      }
+
+      // Hover in placement mode: green if valid, red if not
+      if (hovered) {
+        const hoverKey = hexKey(hovered);
+        const isValid = validTiles.has(hoverKey);
+        const center = hexToPixel(hovered, HEX_SIZE);
+        const corners = hexCorners(center, HEX_SIZE - 1);
+        this.hoverGfx.poly(corners.flatMap((c) => [c.x, c.y]));
+        this.hoverGfx.stroke({
+          color: isValid ? 0x40ff40 : 0xff4040,
+          width: 2.5,
+          alpha: 0.8,
+        });
+      }
+      return;
+    }
+
+    // Normal mode
     if (hovered) {
       const tile = state.grid.tiles.get(hexKey(hovered));
       if (tile) {
@@ -212,6 +268,26 @@ export class GameRenderer {
         this.selectGfx.stroke({ color: 0xffdc50, width: 3, alpha: 0.8 });
       }
     }
+  }
+
+  /** Get set of hex keys where a building type can be validly placed */
+  private getValidPlacementTiles(state: GameState, buildingType: string): Set<string> {
+    const valid = new Set<string>();
+    const def = BUILDING_DEFS[buildingType];
+    if (!def) return valid;
+
+    for (const [key, tile] of state.grid.tiles) {
+      if (tile.buildingId) continue; // already occupied
+      if (def.requiredDeposit) {
+        const hasDeposit = hexNeighbors(tile.coord).some((n) => {
+          const nTile = state.grid.tiles.get(hexKey(n));
+          return nTile?.deposit === def.requiredDeposit;
+        });
+        if (!hasDeposit) continue;
+      }
+      valid.add(key);
+    }
+    return valid;
   }
 
   private drawHexTile(tile: HexTile, state: GameState): void {

@@ -1,6 +1,5 @@
 import type { BattleState, BattleResult, Unit, UnitDef } from '@/core/types';
 import { uid } from '@/core/utils';
-import { UNIT_DEFS } from '@/data/units';
 import { ENEMY_DEFS } from '@/data/units';
 import type { WaveDef } from '@/core/types';
 
@@ -13,12 +12,11 @@ export function createBattleState(
   battleWidth: number,
 ): BattleState {
   // Build enemy units from wave def
-  const allEnemyDefs = { ...UNIT_DEFS, ...ENEMY_DEFS };
   const enemyMelee: Unit[] = [];
   const enemyRanged: Unit[] = [];
 
   for (const entry of wave.enemies) {
-    const def = allEnemyDefs[entry.defId];
+    const def = ENEMY_DEFS[entry.defId];
     if (!def) continue;
     for (let i = 0; i < entry.count; i++) {
       const unit: Unit = {
@@ -67,6 +65,18 @@ export function createBattleState(
   } as BattleState & { _enemyReinforcements: Unit[] };
 }
 
+/** Get the attack interval for a unit based on its speed stat.
+ *  Higher speed = lower interval = attacks more often.
+ *  Speed 7 -> every tick, Speed 2 -> every 6th tick. */
+function getAttackInterval(unit: Unit): number {
+  return Math.max(1, 8 - unit.stats.speed);
+}
+
+/** Check if a unit should attack on this tick based on its speed */
+function canAttackThisTick(unit: Unit, tick: number): boolean {
+  return tick % getAttackInterval(unit) === 0;
+}
+
 /** Advance the battle by one tick. Returns true if battle is still ongoing. */
 export function battleTick(state: BattleState): boolean {
   if (state.result) return false;
@@ -74,22 +84,23 @@ export function battleTick(state: BattleState): boolean {
 
   const extState = state as BattleState & { _enemyReinforcements?: Unit[] };
 
-  // ── Combat: each unit attacks an opposing unit ──
+  // ── Combat: units attack based on their speed stat ──
 
   // Player frontline attacks enemy frontline
   for (let i = 0; i < state.battleWidth; i++) {
     const attacker = state.frontline[i];
     const defender = state.enemyFrontline[i];
-    if (attacker && defender) {
+    if (attacker && defender && canAttackThisTick(attacker, state.tick)) {
       applyDamage(defender, attacker.stats.attack);
     }
-    if (defender && attacker) {
+    if (defender && attacker && canAttackThisTick(defender, state.tick)) {
       applyDamage(attacker, defender.stats.attack);
     }
   }
 
-  // Player ranged attack random enemy frontline
+  // Player ranged attack enemy frontline (speed-gated)
   for (const archer of state.ranged) {
+    if (!canAttackThisTick(archer, state.tick)) continue;
     const targets = state.enemyFrontline.filter((u): u is Unit => u !== null);
     if (targets.length > 0) {
       const target = targets[state.tick % targets.length];
@@ -97,8 +108,9 @@ export function battleTick(state: BattleState): boolean {
     }
   }
 
-  // Enemy ranged attack random player frontline
+  // Enemy ranged attack player frontline (speed-gated)
   for (const archer of state.enemyRanged) {
+    if (!canAttackThisTick(archer, state.tick)) continue;
     const targets = state.frontline.filter((u): u is Unit => u !== null);
     if (targets.length > 0) {
       const target = targets[state.tick % targets.length];

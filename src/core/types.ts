@@ -38,8 +38,7 @@ export type BuildingType =
   | 'barracks'
   | 'archery_range'
   | 'blacksmith'
-  | 'kennel'
-  | 'medical_tent';
+  | 'kennel';
 
 export interface BuildingDef {
   type: BuildingType;
@@ -62,7 +61,7 @@ export interface Building {
 
 export type EquipmentSlot = 'weapon' | 'armor' | 'shield';
 
-export type EquipmentTier = 'crude' | 'basic' | 'refined' | 'masterwork';
+export type EquipmentTier = 'crude' | 'bronze' | 'iron' | 'steel' | 'mithril';
 
 export interface EquipmentDef {
   id: string;
@@ -138,6 +137,10 @@ export type BattleResult = {
 export interface WaveDef {
   waveNumber: number;
   enemies: { defId: string; count: number }[];
+  /** Every 5th wave is elite (tougher enemies, guaranteed Rare+ card) */
+  isElite: boolean;
+  /** Every 10th wave is a boss wave (boss enemy + entourage, guaranteed Relic) */
+  isBoss: boolean;
 }
 
 // ── Tech / BP ──
@@ -219,6 +222,8 @@ export interface StarterKit {
 export interface InputState {
   hoveredHex: HexCoord | null;
   selectedHex: HexCoord | null;
+  /** Building type selected for placement (null = not in placement mode) */
+  placingBuilding: string | null;
   lastMouseX: number;
   lastMouseY: number;
   isPanning: boolean;

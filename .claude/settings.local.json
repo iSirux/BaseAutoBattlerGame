@@ -5,7 +5,9 @@
       "Bash(npm init:*)",
       "Bash(npm install:*)",
       "Bash(npx tsc:*)",
-      "Bash(timeout 8 npx vite:*)"
+      "Bash(timeout 8 npx vite:*)",
+      "Bash(npm run build:*)",
+      "Bash(ls:*)"
     ]
   }
 }

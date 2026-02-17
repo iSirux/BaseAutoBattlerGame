@@ -25,8 +25,11 @@ A roguelike auto-battler where the player builds a base, gathers resources, trai
 - Base and hex grid on the bottom portion
 - Battle arena on the top portion ("above" the base)
 - Player can scroll between both freely
-- During build phase, the **upcoming wave is visible** in the arena with **full info** (enemy types, counts, stats) so the player can plan accordingly
+- During build phase, the **upcoming wave is visible** in the arena as a **static formation**, clickable for detailed stat inspection per enemy
 - During battle phase, the battle plays out in the arena
+- Battle speed controls: **1x / 2x / 4x / Skip**
+- **Persistent resource bar** showing current resources AND income rate (e.g. "Wood: 45 (+12/phase)")
+- Building tooltips show individual output and adjacency bonus breakdown
 
 ---
 
@@ -40,20 +43,28 @@ A roguelike auto-battler where the player builds a base, gathers resources, trai
 | **Stone** | Fortifications, advanced buildings |
 | **Iron** | Equipment (weapons, armor, shields), elite units |
 
+### Resource Distribution
+
+- **Wood** deposits: most common
+- **Stone** deposits: medium frequency
+- **Iron** deposits: rare (1 deposit guaranteed in starting area, more found through map expansion)
+
 ### Resource Gathering
 
 - **Resource buildings** (lumber mill, quarry, mine) placed on the hex grid
 - Buildings must be placed **adjacent to resource deposits** on the map
 - Deposits are **semi-randomly placed** each run, creating unique base layouts
 - Deposits do **not** deplete - steady income once built
-- More buildings on more deposits = higher income
-- Building placement is a strategic layer: balance resource access vs. defensive positioning
+- **Per-phase flat income**: each resource building generates a fixed amount per build phase
+- **Multi-deposit adjacency bonus**: a building adjacent to multiple deposits of its type produces more (e.g. lumber mill touching 2 wood deposits gets bonus output). Rewards reading the map and placing buildings on rich deposit clusters.
 
 ### What Resources Pay For
 
 - Unit training (unit-specific resource costs)
 - Buildings (resource buildings, military buildings, utility buildings)
+- Building upgrades (resource cost to upgrade each building)
 - Equipment crafting (blacksmith produces weapons/armor/shields from iron)
+- Blacksmith tier upgrades (iron + stone, doubling cost per tier)
 - Resources are the **base vs. military** trade-off
 
 ---
@@ -71,17 +82,19 @@ BP is a **separate progression currency** for tech and stat upgrades. Not used f
 
 ### Spending BP - Tech Shop
 
-- **Random shop** with 3-4 upgrades offered after each battle
-- Can **reroll** the shop for a BP cost (encourages saving vs. spending decisions)
+- **4-slot shop** with random upgrades offered after each battle
+- **No reroll** - shop persists between phases. Purchased upgrades are replaced with new random ones.
+- **Full shop reset every 5 waves** (aligned with elite waves as milestone moments)
+- **Tiered upgrades**: each upgrade can only be bought once. After purchase, an upgraded version may appear later (e.g. "Unit Damage +1" → later "Unit Damage +2" at higher cost). Prevents spamming the same upgrade, creates progression within each upgrade path.
 - Upgrade categories:
 
 | Category | Examples |
 |----------|---------|
 | **Combat** | Unit damage +, unit HP +, attack speed +, type-specific buffs |
 | **Economy** | Gather rate +, building cost -, unit training speed +, resource capacity + |
-| **Utility** | Battle width +1, reserve size +1, card rarity boost, extra card choice, unit lives +1, map expansion |
+| **Utility** | Battle width +1, reinforcement queue +1, card rarity boost, extra card choice, map expansion, building upgrade unlock |
 
-- **Map expansion** is a tech unlock (see Map section)
+- **Building upgrade unlock**: BP tech that allows building upgrades. Must be purchased before any building can be upgraded with resources.
 
 ---
 
@@ -138,7 +151,7 @@ Higher waves shift the probability curve toward rarer cards.
 - **HP** - health points
 - **Attack** - damage dealt
 - **Speed** - attack speed / movement
-- **Lives** - number of times a unit can die before permanently lost (per-unit stat)
+- **Lives** - per-unit stat, defined individually for each unit type
 - **Equipment slots** (humanoids only): weapon, armor, shield
 
 ### Unit Lives
@@ -152,7 +165,7 @@ Higher waves shift the probability curve toward rarer cards.
 
 - **Fodder** - cheap, absorbs hits
 - **Melee fighter** - standard frontline, balanced stats
-- **Ranged** - attacks from behind frontline, doesn't take a battle width slot
+- **Ranged** - attacks from ranged row behind frontline, doesn't take a frontline slot
 - **Glass cannon** - high damage, low HP
 - **Tank** - high HP, low damage, holds the line
 - **Animals** - can't equip weapons, can wear armor
@@ -161,7 +174,7 @@ Higher waves shift the probability curve toward rarer cards.
 
 - **No active abilities** at launch. Units only auto-attack.
 - Differentiation comes from stats, equipment, and unit type behavior
-- May add passive/triggered abilities in future iterations
+- Future consideration: passive/triggered abilities
 
 ### Equipment
 
@@ -176,18 +189,26 @@ Higher waves shift the probability curve toward rarer cards.
 | **Steel** | Steel blade, steel plate |
 | **Mithril** | Mithril edge, mithril mail |
 
-- Blacksmith **building level** determines max craftable tier
+- Blacksmith **upgraded with resources** (iron + stone) to unlock next equipment tier
+- **Doubling cost** per tier upgrade (e.g. Crude→Bronze: 20 iron + 10 stone, Bronze→Iron: 40 iron + 20 stone, etc.)
 - Slot types:
   - **Weapons**: increase attack damage
   - **Armor**: increase HP / damage reduction
   - **Shields**: grant +1 life or block chance
 - Only **humanoid units** can equip weapons; animals can only wear armor
+- **Auto-equip**: new units automatically equip best available gear. Player can manually reassign anytime.
+
+### Unit Management
+
+- **Selling units**: sell value = 50% of training cost * (current lives / max lives). Fewer lives = lower sell value.
+- **Bench size**: base of 2 slots, +2 per military building (barracks, archery range, kennel). Building upgrades add more bench slots.
 
 ### Unit Training
 
-- Specific buildings produce specific unit types (barracks -> melee, archery range -> ranged, etc.)
+- Specific buildings produce specific unit types (barracks → melee, archery range → ranged, etc.)
+- **1 unit per building per build phase**. Want faster army growth? Build more military buildings.
 - Training costs resources (wood, stone, iron depending on unit)
-- Training takes time within the build phase
+- Higher-level buildings unlock better unit types (see Building Upgrades)
 
 ---
 
@@ -197,25 +218,30 @@ Higher waves shift the probability curve toward rarer cards.
 
 - A fixed number of **frontline slots** (starts at ~4, upgradeable via tech)
 - Melee units occupy frontline slots
-- Ranged units attack from behind and do **not** occupy slots
-- If all frontline units die, ranged units are exposed
+- Ranged units attack from the **ranged row** behind the frontline and do **not** occupy frontline slots
+- **Ranged row cap = battle width** (same number of slots as frontline, scales together)
+- If all frontline units die, ranged units are exposed to melee
 
 ### Targeting
 
 - Default: units attack the **closest enemy**
 - Future consideration: type-based targeting for specific unit types
 
-### Reserves
+### Army Layout
 
-Two pools:
-- **Bench** - staging ground, units not in the current battle roster. Managed between battles.
-- **Reinforcement Queue** - ordered list of units that auto-deploy when a frontline unit dies. Player sets the order.
+Three zones:
+1. **Frontline** - melee units in battle width slots. These fight first.
+2. **Ranged Row** - ranged units behind the frontline. Slots = battle width. Attack without taking frontline slots. Exposed if frontline falls.
+3. **Reinforcement Queue** - ordered list of units that auto-deploy into empty frontline slots when a unit dies. Player sets the order. Starts at 2 slots, upgradeable via tech.
+
+Plus:
+- **Bench** - non-combat storage. Units managed between battles. Not deployed during combat.
 
 ### Battle Flow
 
 - Battles are fought to the death - one side always wins
 - Units auto-fight (no player control during battle)
-- Player strategy is in composition, positioning, equipment, and reinforcement order
+- Player strategy is in composition, equipment, and reinforcement order
 - Battles happen in the **separate arena** (above the base in the scrollable view)
 - Buildings are **never damaged** by battles
 
@@ -226,7 +252,7 @@ Two pools:
 ### Wave Structure
 
 - **Infinite waves** - no cap, difficulty scales forever
-- **Every 5th wave**: Elite wave (tougher enemies, guaranteed Rare+ card reward)
+- **Every 5th wave**: Elite wave (tougher enemies, guaranteed Rare+ card reward, tech shop resets)
 - **Every 10th wave**: Boss wave (boss enemy, possibly with entourage, guaranteed Relic reward)
 
 ### Wave Design
@@ -248,6 +274,7 @@ Two pools:
 ### Wave Preview
 
 - During build phase, the **full upcoming wave** is displayed in the arena
+- Enemies shown in **static formation**, clickable for detailed stat tooltips
 - Player can see: exact enemy types, counts, and stats
 - Allows strategic preparation (train counters, adjust equipment, reorder reinforcements)
 
@@ -257,7 +284,7 @@ Two pools:
 
 ### Base Health
 
-- The base has a total **HP pool**
+- The base has a **fixed 100 HP** pool
 - Losing a battle means **losing base health**, proportional to how many enemy units survive and their remaining HP
 - Base reaches 0 HP = run over
 
@@ -268,28 +295,51 @@ Two pools:
 | Lumber Mill | Gathers wood (near wood deposits) | Wood, Stone |
 | Quarry | Gathers stone (near stone deposits) | Wood, Stone |
 | Iron Mine | Gathers iron (near iron deposits) | Wood, Stone |
-| Barracks | Trains melee units | Wood, Stone |
-| Archery Range | Trains ranged units | Wood, Iron |
-| Blacksmith | Crafts equipment from iron (upgradeable tiers) | Stone, Iron |
-| Kennel | Trains animal units | Wood |
+| Barracks | Trains melee units, +2 bench slots | Wood, Stone |
+| Archery Range | Trains ranged units, +2 bench slots | Wood, Iron |
+| Blacksmith | Crafts equipment (upgradeable tiers) | Stone, Iron |
+| Kennel | Trains animal units, +2 bench slots | Wood |
 
 - Buildings are **never destroyed** during battles
-- Blacksmith has upgrade levels that unlock higher equipment tiers
+
+### Building Upgrades
+
+- **Gated by tech**: must purchase "Building Upgrade" tech (BP) before any building can be upgraded
+- Once unlocked, individual buildings are upgraded by **spending resources**
+- **3 levels** per building (base, lv2, lv3) - may require multiple tech tiers to unlock lv3
+- **Mixed benefits** by building type:
+
+| Building Type | Lv2 Benefit | Lv3 Benefit |
+|--------------|-------------|-------------|
+| Resource buildings | +output bonus | +further output bonus |
+| Military buildings | Unlock new unit type + 2 bench slots | Unlock elite unit type + 2 bench slots |
+| Blacksmith | (Uses own tier upgrade system instead) | - |
+
+- Blacksmith uses its own **resource-based tier upgrade** system (Crude → Bronze → Iron → Steel → Mithril) with doubling costs, separate from the general building upgrade system
 
 ---
 
 ## Map / Grid
 
-- **Hex grid**
-- **Expanding map** - starts small, grows via tech upgrades (BP)
-- Map expansion is a Utility tech purchase, competing with other tech options
+- **Hex grid**, no terrain effects (flat tiles with cosmetic variety)
+- **Expanding map** - starts small, grows via tech upgrades (BP spent in Utility category)
+- New deposits are revealed as the map expands
+- Resource deposit distribution: **wood most common, stone medium, iron rare**
+- 1 iron deposit guaranteed in starting area
 - Semi-random generation per run:
-  - Resource deposit placement
-  - Terrain features
-  - New deposits revealed as map expands
-- 6 directions of attack/adjacency
+  - Resource deposit placement and clustering
+  - Cosmetic tile variety
+- 6 directions of adjacency
 - Buildings snap to hex tiles
-- Starting area is compact - forces early trade-offs on building placement
+
+---
+
+## Build Phase UX
+
+- **Click-to-select, click-to-place**: select a building/action from a sidebar menu, then click a hex tile to place
+- Sidebar shows available actions: build, train, equip, sell, tech shop
+- Unit management: click units to assign to frontline/ranged row/reinforcement queue/bench
+- **Onboarding checklist**: dismissable panel shown every run with checklist items (Place building, Gather resources, Train unit, Equip unit, Start battle). Checks off as player completes each action. Can be dismissed at any time.
 
 ---
 
@@ -314,14 +364,46 @@ Two pools:
 
 ---
 
+## Run End & Scoring
+
+### End Screen
+
+- **Stats summary**: wave reached, units trained, enemies killed, buildings built, relics collected
+- **Score**: wave count is the primary and only score
+- **Meta unlocks**: show any new unlocks earned during this run
+
+### Scoring
+
+- **Wave count only** - simple, clear single metric
+- Stats shown for flavor but do not affect ranking
+
+---
+
 ## Meta Progression (Between Runs)
 
-Kept light to preserve roguelike feel:
+### Legacy Points
 
-- **Unlock new starter kits** via achievements
-- **Unlock new unit types / buildings** that can appear in future runs
-- **Unlock new relics** added to the card pool
+- Earned per run: **1 point per wave survived + 5 bonus per boss killed**
+- Spent in the **Unlock Shop** between runs
+
+### Unlock Shop
+
+- **Categorized tabs**: Kits, Relics, Units, Buildings
+- **Tiered progression** within each category: unlock tier 1 items to reveal tier 2, etc.
+- Unlock types:
+  - **Starter Kits** - new starting options
+  - **Relics** - added to the card pool for future runs
+  - **Unit Types** - new units that can appear in future runs
+  - **Building Types** - new buildings available in future runs
 - **No permanent stat boosts** - each run stands on its own
+- **No cosmetics** for now (can be added later)
+
+### Saving
+
+- **Auto-save each phase** - game saves at the start of each build phase
+- Can resume a run later
+- One active save slot
+- Meta progression (legacy points, unlocks) saved separately
 
 ---
 
@@ -337,12 +419,11 @@ Kept light to preserve roguelike feel:
 ## Open Questions
 
 - Starting map size (hex radius) and expansion increment per tech level
-- Build phase UX details (unit drag-and-drop? click-to-place?)
 - Animal unit specifics
 - Detailed tech upgrade list and BP costs
-- Battle animation / speed controls (1x/2x/skip?)
-- Terrain features and their effects
-- Detailed enemy unit roster
-- Blacksmith upgrade costs and tier progression
-- Resource income rates and balancing
-- Reinforcement queue size limits
+- Detailed enemy unit roster and boss designs
+- Resource income rates and adjacency bonus values
+- Specific unit stats, costs, and lives per unit type
+- Building upgrade resource costs per level
+- Tech tier costs for building upgrade unlocks (lv2 unlock, lv3 unlock)
+- Exact base damage formula on loss

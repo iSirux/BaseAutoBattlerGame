@@ -57,12 +57,4 @@ export const BUILDING_DEFS: Record<string, BuildingDef> = {
     produces: null,
     productionRate: 0,
   },
-  medical_tent: {
-    type: 'medical_tent',
-    name: 'Medical Tent',
-    cost: { wood: 20, stone: 15, iron: 10 },
-    requiredDeposit: null,
-    produces: null,
-    productionRate: 0,
-  },
 };

@@ -1,14 +1,16 @@
-import type { GameState, GamePhase, Resources, Unit, Building, HexCoord } from './types';
+import type { GameState, GamePhase, Resources, Unit, Building, HexCoord, BattleResult } from './types';
 import { uid } from './utils';
 import { gameEvents } from './events';
 import { generateGrid, hasAdjacentDeposit } from '@/hex/grid';
-import { hexKey } from '@/hex/coords';
+import { hex, hexKey } from '@/hex/coords';
 import { BUILDING_DEFS } from '@/data/buildings';
 import { UNIT_DEFS } from '@/data/units';
+import { generateWave, calculateBP } from '@/data/waves';
+import { createBattleState, runBattle } from '@/simulation/battle';
 import type { StarterKit } from './types';
 
 const INITIAL_BASE_HP = 100;
-const INITIAL_BATTLE_WIDTH = 4;
+export const INITIAL_BATTLE_WIDTH = 4;
 
 /** Create the initial game state for a new run */
 export function createGameState(seed: number, starterKit: StarterKit): GameState {
@@ -39,6 +41,19 @@ export function createGameState(seed: number, starterKit: StarterKit): GameState
   const unit = createUnit(starterKit.unitDefId);
   state.roster.set(unit.id, unit);
   state.battleRoster.push(unit.id);
+
+  // Place starter building at center tile (free — part of the kit)
+  const centerCoord = hex(0, 0);
+  const centerTile = state.grid.tiles.get(hexKey(centerCoord));
+  if (centerTile) {
+    const building: Building = {
+      id: uid('b'),
+      type: starterKit.buildingType,
+      coord: centerCoord,
+    };
+    centerTile.buildingId = building.id;
+    state.buildings.set(building.id, building);
+  }
 
   return state;
 }
@@ -136,4 +151,94 @@ export function spendResources(state: GameState, cost: Partial<Resources>): void
     if (amount) state.resources[res as keyof Resources] -= amount;
   }
   gameEvents.emit('resources:changed', { ...state.resources });
+}
+
+/** Train a unit from a definition ID. Returns the unit or null if invalid. */
+export function trainUnit(state: GameState, defId: string): Unit | null {
+  const def = UNIT_DEFS[defId];
+  if (!def) return null;
+
+  // Check player has the required building
+  const hasBuilding = [...state.buildings.values()].some((b) => b.type === def.trainedAt);
+  if (!hasBuilding) return null;
+
+  if (!canAfford(state.resources, def.trainingCost)) return null;
+  spendResources(state, def.trainingCost);
+
+  const unit = createUnit(defId);
+  state.roster.set(unit.id, unit);
+  state.battleRoster.push(unit.id); // auto-deploy
+  gameEvents.emit('unit:trained', { unitId: unit.id });
+  return unit;
+}
+
+/** Run a battle for the current wave. Returns the BattleResult. */
+export function startBattle(state: GameState): BattleResult {
+  // Reset all roster units' HP to max before battle
+  for (const unit of state.roster.values()) {
+    unit.stats.hp = unit.stats.maxHp;
+  }
+
+  // Split battleRoster into melee vs ranged
+  const melee: Unit[] = [];
+  const ranged: Unit[] = [];
+  for (const id of state.battleRoster) {
+    const unit = state.roster.get(id);
+    if (!unit) continue;
+    const def = UNIT_DEFS[unit.defId];
+    if (def?.role === 'ranged') {
+      ranged.push(unit);
+    } else {
+      melee.push(unit);
+    }
+  }
+
+  // Resolve reinforcement IDs to Unit objects
+  const reinforcements: Unit[] = [];
+  for (const id of state.reinforcements) {
+    const unit = state.roster.get(id);
+    if (unit) reinforcements.push(unit);
+  }
+
+  const wave = generateWave(state.wave);
+  const battleState = createBattleState(melee, ranged, reinforcements, wave, INITIAL_BATTLE_WIDTH);
+  const result = runBattle(battleState);
+
+  // Calculate and award BP
+  const bp = calculateBP(state.wave, result.winner === 'player');
+  result.bpEarned = bp;
+  state.bp += bp;
+
+  // Remove permanently dead units (lives <= 0)
+  const deadIds: string[] = [];
+  for (const unit of state.roster.values()) {
+    if (unit.lives <= 0) deadIds.push(unit.id);
+  }
+  for (const id of deadIds) {
+    state.roster.delete(id);
+  }
+  // Purge dead IDs from all arrays
+  state.battleRoster = state.battleRoster.filter((id) => state.roster.has(id));
+  state.reinforcements = state.reinforcements.filter((id) => state.roster.has(id));
+  state.bench = state.bench.filter((id) => state.roster.has(id));
+
+  if (result.winner === 'enemy') {
+    // Calculate base damage from surviving enemies' attack stats
+    const baseDamage = result.survivingEnemies.reduce((sum, e) => sum + e.stats.attack, 0);
+    damageBase(state, baseDamage);
+    state.lossStreak++;
+  } else {
+    state.lossStreak = 0;
+  }
+
+  state.battle = battleState;
+  gameEvents.emit('battle:ended', result);
+  return result;
+}
+
+/** Advance from battle/results back to the build phase */
+export function advanceToBuild(state: GameState): void {
+  state.wave++;
+  state.battle = null;
+  setPhase(state, 'build');
 }

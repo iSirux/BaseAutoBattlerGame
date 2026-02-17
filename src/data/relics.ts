@@ -18,9 +18,9 @@ export const RELICS: Relic[] = [
   {
     id: 'armorers_blessing',
     name: "Armorer's Blessing",
-    description: 'New units start with padded armor.',
+    description: 'New units start with a hide vest.',
     rarity: 'rare',
-    effect: { type: 'new_unit_armor', equipmentId: 'padded_armor' },
+    effect: { type: 'new_unit_armor', equipmentId: 'hide_vest' },
   },
   {
     id: 'wide_formation',
