@@ -7,7 +7,8 @@
       "Bash(npx tsc:*)",
       "Bash(timeout 8 npx vite:*)",
       "Bash(npm run build:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(npx vite build)"
     ]
   }
 }

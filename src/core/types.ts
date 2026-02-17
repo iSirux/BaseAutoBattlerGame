@@ -271,4 +271,21 @@ export interface GameState {
 
   /** Consecutive losses (for pity system) */
   lossStreak: number;
+
+  /** Crafted equipment not yet assigned to a unit */
+  equipmentInventory: EquipmentDef[];
+  /** Current max tier the blacksmith can craft */
+  blacksmithTier: EquipmentTier;
+
+  /** Cumulative bonuses from tech upgrades */
+  gatherRateMultiplier: number;
+  buildingCostMultiplier: number;
+  battleWidthBonus: number;
+  reinforcementQueueSize: number;
+  cardRarityBoost: number;
+  extraCardChoices: number;
+
+  /** Cumulative stat bonuses applied to new units */
+  techStatBonuses: Partial<UnitStats>;
+  techLivesBonus: number;
 }

@@ -41,6 +41,12 @@ export class GameRenderer {
   private panStart = { x: 0, y: 0 };
   private dragDistance = 0;
 
+  private activePointers = new Map<number, { x: number; y: number }>();
+  private pinchStartDist = 0;
+  private pinchStartScale = 1;
+  private isPinching = false;
+  private isTouchDevice = false;
+
   private hoverGfx: Graphics;
   private selectGfx: Graphics;
   private validPlacementGfx: Graphics;
@@ -95,7 +101,27 @@ export class GameRenderer {
   private setupInput(): void {
     const canvas = this.app.canvas;
 
+    // Detect touch device and prevent browser gesture interception
+    this.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    canvas.style.touchAction = 'none';
+    canvas.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+    canvas.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+
     canvas.addEventListener('pointerdown', (e) => {
+      this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      // Two fingers = pinch-to-zoom
+      if (this.activePointers.size === 2) {
+        this.isPinching = true;
+        this.isPanning = false;
+        const pts = [...this.activePointers.values()];
+        const dx = pts[1].x - pts[0].x;
+        const dy = pts[1].y - pts[0].y;
+        this.pinchStartDist = Math.sqrt(dx * dx + dy * dy);
+        this.pinchStartScale = this.worldContainer.scale.x;
+        return;
+      }
+
       if (e.button === 2 || (e.button === 0 && e.ctrlKey)) {
         // Right-click: cancel placement or pan
         if (this.inputState.placingBuilding) {
@@ -124,8 +150,31 @@ export class GameRenderer {
     });
 
     canvas.addEventListener('pointermove', (e) => {
+      this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       this.inputState.lastMouseX = e.offsetX;
       this.inputState.lastMouseY = e.offsetY;
+
+      // Pinch-to-zoom with two fingers
+      if (this.isPinching && this.activePointers.size === 2) {
+        const pts = [...this.activePointers.values()];
+        const dx = pts[1].x - pts[0].x;
+        const dy = pts[1].y - pts[0].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const ratio = dist / this.pinchStartDist;
+
+        const oldScale = this.worldContainer.scale.x;
+        const newScale = Math.max(0.3, Math.min(3, this.pinchStartScale * ratio));
+
+        // Zoom toward pinch midpoint
+        const midX = (pts[0].x + pts[1].x) / 2;
+        const midY = (pts[0].y + pts[1].y) / 2;
+        const worldX = (midX - this.worldContainer.x) / oldScale;
+        const worldY = (midY - this.worldContainer.y) / oldScale;
+        this.worldContainer.scale.set(newScale);
+        this.worldContainer.x = midX - worldX * newScale;
+        this.worldContainer.y = midY - worldY * newScale;
+        return;
+      }
 
       // Update hovered hex
       this.updateHoveredHex(e.offsetX, e.offsetY);
@@ -141,25 +190,60 @@ export class GameRenderer {
     });
 
     canvas.addEventListener('pointerup', (e) => {
-      // If we barely moved, treat as click (selection)
-      if (this.dragDistance < 5 && e.button === 0) {
+      this.activePointers.delete(e.pointerId);
+
+      // Exiting pinch: reset pan origin for remaining pointer, prevent accidental click
+      if (this.isPinching) {
+        this.isPinching = false;
+        if (this.activePointers.size === 1) {
+          const remaining = [...this.activePointers.values()][0];
+          this.panStart = { x: remaining.x, y: remaining.y };
+          this.isPanning = true;
+        }
+        this.dragDistance = Infinity; // suppress click after pinch
+        return;
+      }
+
+      // Adaptive click threshold: touch needs more slack than mouse
+      const clickThreshold = e.pointerType === 'touch' ? 15 : 5;
+      if (this.dragDistance < clickThreshold && e.button === 0) {
         this.handleClick(e.offsetX, e.offsetY);
       }
       this.isPanning = false;
       this.inputState.isPanning = false;
     });
 
-    canvas.addEventListener('pointerleave', () => {
-      this.isPanning = false;
-      this.inputState.isPanning = false;
-      this.inputState.hoveredHex = null;
+    canvas.addEventListener('pointerleave', (e) => {
+      this.activePointers.delete(e.pointerId);
+      if (this.activePointers.size === 0) {
+        this.isPanning = false;
+        this.isPinching = false;
+        this.inputState.isPanning = false;
+        this.inputState.hoveredHex = null;
+      }
+    });
+
+    canvas.addEventListener('pointercancel', (e) => {
+      this.activePointers.delete(e.pointerId);
+      if (this.activePointers.size < 2) this.isPinching = false;
+      if (this.activePointers.size === 0) {
+        this.isPanning = false;
+        this.inputState.isPanning = false;
+      }
     });
 
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       const scaleFactor = e.deltaY > 0 ? 0.9 : 1.1;
-      const newScale = Math.max(0.3, Math.min(3, this.worldContainer.scale.x * scaleFactor));
+      const oldScale = this.worldContainer.scale.x;
+      const newScale = Math.max(0.3, Math.min(3, oldScale * scaleFactor));
+
+      // Zoom toward cursor position
+      const worldX = (e.offsetX - this.worldContainer.x) / oldScale;
+      const worldY = (e.offsetY - this.worldContainer.y) / oldScale;
       this.worldContainer.scale.set(newScale);
+      this.worldContainer.x = e.offsetX - worldX * newScale;
+      this.worldContainer.y = e.offsetY - worldY * newScale;
     }, { passive: false });
 
     // Prevent context menu on right-click

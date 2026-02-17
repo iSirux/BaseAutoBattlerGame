@@ -15,10 +15,19 @@ async function main() {
   const canvasContainer = document.getElementById('game-canvas')!;
   await renderer.init(canvasContainer);
 
+  // Unlock AudioContext on first user interaction (required by mobile browsers)
+  const unlockAudio = () => {
+    const ctx = (window as any).zzfxX as AudioContext | undefined;
+    if (ctx?.state === 'suspended') ctx.resume();
+    document.removeEventListener('pointerdown', unlockAudio);
+  };
+  document.addEventListener('pointerdown', unlockAudio);
+
   // HUD
   const hud = new HUD();
   hud.onBuildingPlaced = () => renderer.renderGrid(state);
   hud.initBuildBar(renderer.inputState);
+  hud.initRosterPanel(state);
   hud.bindDebugActions(state, () => {
     renderer.renderGrid(state);
   });
@@ -32,7 +41,6 @@ async function main() {
     if (result) {
       SFX.build();
       renderer.renderGrid(state);
-      // Stay in placement mode so player can place multiple
     }
   };
 
@@ -41,11 +49,18 @@ async function main() {
   hud.update(state);
 
   // Grant flat resource income once when entering build phase
-  tickResources(state); // initial build phase income
+  tickResources(state);
   gameEvents.on('phase:changed', ({ to }) => {
     if (to === 'build') {
       tickResources(state);
     }
+  });
+
+  // Tech shop button
+  document.getElementById('tech-shop-btn')!.addEventListener('click', () => {
+    if (state.phase !== 'build') return;
+    SFX.click();
+    hud.showTechShop(state);
   });
 
   // Ready button: start the battle
@@ -60,16 +75,20 @@ async function main() {
     renderer.renderGrid(state);
     hud.update(state);
 
+    // Battle results → Card selection → Advance to build
     hud.showBattleResults(result, unitsLost, () => {
-      if (state.phase !== 'game_over') {
+      if (state.phase === 'game_over') return;
+
+      // Show card selection
+      hud.showCardSelection(state, () => {
         advanceToBuild(state);
         renderer.renderGrid(state);
         hud.update(state);
-      }
+      });
     });
   });
 
-  // Main frame loop: update highlights, tooltips, and HUD every frame
+  // Main frame loop
   renderer.app.ticker.add(() => {
     renderer.updateHighlights(state);
     hud.updateHoverTooltip(renderer.inputState, state);

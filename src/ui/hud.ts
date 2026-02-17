@@ -1,11 +1,19 @@
-import type { GameState, InputState, HexTile, HexCoord, Resources, BattleResult } from '@/core/types';
+import type { GameState, InputState, HexTile, HexCoord, Resources, BattleResult, EquipmentSlot, Card } from '@/core/types';
 import { gameEvents } from '@/core/events';
 import { BUILDING_DEFS } from '@/data/buildings';
 import type { BuildingDef } from '@/core/types';
 import { hexKey, hexNeighbors } from '@/hex/coords';
 import { generateGrid } from '@/hex/grid';
-import { createUnit, placeBuilding, canAfford, trainUnit } from '@/core/gameState';
+import {
+  createUnit, placeBuilding, canAfford, trainUnit,
+  moveUnitToActive, moveUnitToReinforcements, moveUnitToBench,
+  craftEquipment, equipItem, unequipItem, getCraftableEquipment,
+  upgradeBlacksmith, getBlacksmithUpgradeCost,
+  purchaseTech, selectCard, generateCardChoices,
+  TIER_ORDER,
+} from '@/core/gameState';
 import { UNIT_DEFS } from '@/data/units';
+import { RELICS } from '@/data/relics';
 import { SFX } from '@/audio/sfx';
 
 const BUILDING_ICON_COLORS: Record<string, string> = {
@@ -23,15 +31,17 @@ export class HUD {
   private currentFps = 0;
   private fpsLastTime = performance.now();
   private lastResources = { wood: 0, stone: 0, iron: 0 };
+  private isMobile = window.matchMedia('(max-width: 768px)').matches
+    || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
 
-  /** Called after a building is placed so the renderer can update */
   onBuildingPlaced: (() => void) | null = null;
-
-  /** Track the last selected hex key to avoid rebuilding the panel every frame */
   private lastSelectedKey: string | null = null;
-
-  /** Reference to the input state for setting placingBuilding */
   private inputState: InputState | null = null;
+  private selectedUnitId: string | null = null;
+  private rosterVisible = false;
+
+  /** Callbacks set by main.ts */
+  onTechShopOpen: (() => void) | null = null;
 
   constructor() {
     this.bindDebugPanel();
@@ -39,7 +49,6 @@ export class HUD {
 
   // ── Build Bar ──
 
-  /** Initialize the build bar. Call once after renderer is ready. */
   initBuildBar(inputState: InputState): void {
     this.inputState = inputState;
     const bar = document.getElementById('build-bar')!;
@@ -69,7 +78,6 @@ export class HUD {
       item.addEventListener('click', () => {
         if (item.classList.contains('disabled')) return;
         if (inputState.placingBuilding === def.type) {
-          // Toggle off
           inputState.placingBuilding = null;
         } else {
           inputState.placingBuilding = def.type;
@@ -80,7 +88,6 @@ export class HUD {
     }
   }
 
-  /** Update build bar active/disabled state each frame */
   updateBuildBar(state: GameState): void {
     const bar = document.getElementById('build-bar');
     if (!bar) return;
@@ -93,9 +100,31 @@ export class HUD {
       const def = BUILDING_DEFS[type];
       if (!def) continue;
 
-      const affordable = canAfford(state.resources, def.cost);
+      // Apply building cost multiplier for affordability check
+      const adjustedCost: Partial<Resources> = {};
+      for (const [res, amount] of Object.entries(def.cost)) {
+        if (amount) adjustedCost[res as keyof Resources] = Math.floor(amount * state.buildingCostMultiplier);
+      }
+      const affordable = canAfford(state.resources, adjustedCost);
       el.classList.toggle('disabled', !affordable);
       el.classList.toggle('active', placing === type);
+    }
+
+    let cancelBtn = document.getElementById('build-bar-cancel');
+    if (placing) {
+      if (!cancelBtn) {
+        cancelBtn = document.createElement('div');
+        cancelBtn.id = 'build-bar-cancel';
+        cancelBtn.className = 'build-bar-item';
+        cancelBtn.style.cssText = 'background:rgba(200,60,60,0.25);border-color:rgba(200,60,60,0.5);';
+        cancelBtn.innerHTML = '<div class="build-bar-icon" style="background:#c03030;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:bold;">\u2715</div><div class="build-bar-label" style="color:#e08080;">Cancel</div>';
+        cancelBtn.addEventListener('click', () => {
+          if (this.inputState) this.inputState.placingBuilding = null;
+        });
+        bar.appendChild(cancelBtn);
+      }
+    } else if (cancelBtn) {
+      cancelBtn.remove();
     }
   }
 
@@ -113,7 +142,6 @@ export class HUD {
   }
 
   private shortName(name: string): string {
-    // Shorten long names for the bar
     const shorts: Record<string, string> = {
       'Lumber Mill': 'Lumber',
       'Archery Range': 'Archery',
@@ -142,29 +170,372 @@ export class HUD {
     const fill = document.getElementById('base-hp-fill');
     if (fill) fill.style.width = `${hpPct}%`;
 
-    // Phase-aware visibility
     const isBuild = state.phase === 'build';
     const readyBtn = document.getElementById('ready-btn');
     const buildBar = document.getElementById('build-bar');
+    const techBtn = document.getElementById('tech-shop-btn');
+    const rosterBtn = document.getElementById('roster-toggle');
     if (readyBtn) readyBtn.classList.toggle('hidden', !isBuild);
     if (buildBar) buildBar.style.display = isBuild ? '' : 'none';
+    if (techBtn) (techBtn as HTMLElement).style.display = isBuild ? '' : 'none';
+    if (rosterBtn) (rosterBtn as HTMLElement).style.display = isBuild ? '' : 'none';
 
-    // Roster count
-    this.setText('roster-label', state.battleRoster.length > 0 ? `Army: ${state.battleRoster.length}` : '');
+    // Update roster label
+    const totalUnits = state.roster.size;
+    const activeCount = state.battleRoster.length;
+    this.setText('roster-label', totalUnits > 0 ? `${activeCount}/${totalUnits}` : '');
+
+    // Update relics bar
+    this.updateRelicsBar(state);
 
     this.updateBuildBar(state);
     this.updateFps();
     this.updateDebugValues(state);
   }
 
+  // ── Roster Panel ──
+
+  initRosterPanel(state: GameState): void {
+    const toggle = document.getElementById('roster-toggle');
+    const panel = document.getElementById('roster-panel');
+    const close = document.getElementById('roster-close');
+
+    toggle?.addEventListener('click', () => {
+      this.rosterVisible = !this.rosterVisible;
+      panel?.classList.toggle('visible', this.rosterVisible);
+      if (this.rosterVisible) this.rebuildRosterPanel(state);
+    });
+    close?.addEventListener('click', () => {
+      this.rosterVisible = false;
+      panel?.classList.remove('visible');
+    });
+  }
+
+  updateRosterPanel(state: GameState): void {
+    if (!this.rosterVisible) return;
+    this.rebuildRosterPanel(state);
+  }
+
+  private rebuildRosterPanel(state: GameState): void {
+    const content = document.getElementById('roster-content');
+    if (!content) return;
+
+    let html = '';
+
+    // Active (battleRoster)
+    html += `<div class="roster-section">`;
+    html += `<div class="roster-section-title">Active (${state.battleRoster.length})</div>`;
+    if (state.battleRoster.length === 0) {
+      html += `<div class="roster-empty">No active units</div>`;
+    }
+    for (const id of state.battleRoster) {
+      html += this.renderRosterUnit(id, state, 'active');
+    }
+    html += `</div>`;
+
+    // Reinforcements
+    html += `<div class="roster-section">`;
+    html += `<div class="roster-section-title">Reinforcements (${state.reinforcements.length}/${state.reinforcementQueueSize})</div>`;
+    if (state.reinforcements.length === 0) {
+      html += `<div class="roster-empty">Empty</div>`;
+    }
+    for (const id of state.reinforcements) {
+      html += this.renderRosterUnit(id, state, 'reinforcement');
+    }
+    html += `</div>`;
+
+    // Bench
+    html += `<div class="roster-section">`;
+    html += `<div class="roster-section-title">Bench (${state.bench.length})</div>`;
+    if (state.bench.length === 0) {
+      html += `<div class="roster-empty">Empty</div>`;
+    }
+    for (const id of state.bench) {
+      html += this.renderRosterUnit(id, state, 'bench');
+    }
+    html += `</div>`;
+
+    // Equipment inventory
+    if (state.equipmentInventory.length > 0) {
+      html += `<div class="roster-section">`;
+      html += `<div class="roster-section-title">Equipment (${state.equipmentInventory.length})</div>`;
+      for (const eq of state.equipmentInventory) {
+        html += `<div style="font-size:10px;color:rgba(240,230,211,0.6);padding:1px 0;">`;
+        html += `${eq.name} <span style="color:#7ab0d4;">(${eq.slot})</span>`;
+        html += `</div>`;
+      }
+      html += `</div>`;
+    }
+
+    content.innerHTML = html;
+
+    // Bind zone buttons
+    content.querySelectorAll('.zone-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const el = btn as HTMLElement;
+        const unitId = el.dataset.unitId!;
+        const zone = el.dataset.zone!;
+        if (zone === 'active') moveUnitToActive(state, unitId);
+        else if (zone === 'reinforcement') moveUnitToReinforcements(state, unitId);
+        else if (zone === 'bench') moveUnitToBench(state, unitId);
+        this.rebuildRosterPanel(state);
+      });
+    });
+
+    // Bind unit click for detail
+    content.querySelectorAll('.roster-unit').forEach(el => {
+      el.addEventListener('click', () => {
+        const unitId = (el as HTMLElement).dataset.unitId!;
+        this.selectedUnitId = this.selectedUnitId === unitId ? null : unitId;
+        this.showUnitDetail(state);
+      });
+    });
+  }
+
+  private renderRosterUnit(id: string, state: GameState, zone: string): string {
+    const unit = state.roster.get(id);
+    if (!unit) return '';
+    const def = UNIT_DEFS[unit.defId];
+    if (!def) return '';
+
+    const equipNames: string[] = [];
+    if (unit.equipment.weapon) equipNames.push(unit.equipment.weapon.name);
+    if (unit.equipment.armor) equipNames.push(unit.equipment.armor.name);
+    if (unit.equipment.shield) equipNames.push(unit.equipment.shield.name);
+
+    const selected = this.selectedUnitId === id ? ' selected' : '';
+    let hearts = '';
+    for (let i = 0; i < unit.maxLives; i++) {
+      hearts += i < unit.lives ? '\u2764' : '\u2661';
+    }
+
+    let html = `<div class="roster-unit${selected}" data-unit-id="${id}">`;
+    html += `<div class="roster-unit-info">`;
+    html += `<div class="roster-unit-name">${def.name} <span class="roster-unit-lives">${hearts}</span></div>`;
+    html += `<div class="roster-unit-stats">HP:${unit.stats.maxHp} ATK:${unit.stats.attack} SPD:${unit.stats.speed}</div>`;
+    if (equipNames.length > 0) {
+      html += `<div style="font-size:9px;color:#7ab0d4;">${equipNames.join(', ')}</div>`;
+    }
+    html += `</div>`;
+    html += `<div class="roster-zone-btns">`;
+    if (zone !== 'active') html += `<button class="zone-btn" data-unit-id="${id}" data-zone="active" title="Move to Active">A</button>`;
+    if (zone !== 'reinforcement') html += `<button class="zone-btn" data-unit-id="${id}" data-zone="reinforcement" title="Move to Reinforcements">R</button>`;
+    if (zone !== 'bench') html += `<button class="zone-btn" data-unit-id="${id}" data-zone="bench" title="Move to Bench">B</button>`;
+    html += `</div></div>`;
+    return html;
+  }
+
+  private showUnitDetail(state: GameState): void {
+    const detail = document.getElementById('unit-detail');
+    if (!detail) return;
+
+    if (!this.selectedUnitId) {
+      detail.classList.remove('visible');
+      return;
+    }
+
+    const unit = state.roster.get(this.selectedUnitId);
+    if (!unit) {
+      detail.classList.remove('visible');
+      this.selectedUnitId = null;
+      return;
+    }
+
+    const def = UNIT_DEFS[unit.defId];
+    let html = `<div class="unit-detail-header">${def?.name ?? 'Unit'}</div>`;
+    html += `<div class="unit-detail-stats">`;
+    html += `HP: ${unit.stats.maxHp} | ATK: ${unit.stats.attack} | SPD: ${unit.stats.speed}<br>`;
+    html += `Lives: ${unit.lives}/${unit.maxLives}<br>`;
+    html += `Role: ${def?.role ?? '?'}`;
+    html += `</div>`;
+
+    // Equipment slots
+    const slots: EquipmentSlot[] = ['weapon', 'armor', 'shield'];
+    html += `<div style="margin-top:6px;">`;
+    for (const slot of slots) {
+      if (slot === 'weapon' && !def?.canEquipWeapons) continue;
+      if (slot === 'armor' && !def?.canEquipArmor) continue;
+      if (slot === 'shield' && !def?.canEquipWeapons) continue;
+
+      const equipped = unit.equipment[slot];
+      html += `<div class="unit-equip-slot">`;
+      html += `<span>${this.capitalize(slot)}: ${equipped ? equipped.name : '<i style="opacity:0.4">empty</i>'}</span>`;
+      if (equipped) {
+        html += `<button class="equip-action-btn" data-action="unequip" data-slot="${slot}">Remove</button>`;
+      } else {
+        // Show equip options from inventory
+        const available = state.equipmentInventory
+          .map((eq, idx) => ({ eq, idx }))
+          .filter(({ eq }) => eq.slot === slot);
+        if (available.length > 0) {
+          html += `<select class="equip-action-btn equip-select" data-slot="${slot}" style="max-width:80px;">`;
+          html += `<option value="">Equip...</option>`;
+          for (const { eq, idx } of available) {
+            html += `<option value="${idx}">${eq.name}</option>`;
+          }
+          html += `</select>`;
+        }
+      }
+      html += `</div>`;
+    }
+    html += `</div>`;
+
+    detail.innerHTML = html;
+    detail.classList.add('visible');
+
+    // Bind unequip buttons
+    detail.querySelectorAll('[data-action="unequip"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const slot = (btn as HTMLElement).dataset.slot as EquipmentSlot;
+        unequipItem(state, this.selectedUnitId!, slot);
+        this.showUnitDetail(state);
+        this.rebuildRosterPanel(state);
+      });
+    });
+
+    // Bind equip selects
+    detail.querySelectorAll('.equip-select').forEach(sel => {
+      sel.addEventListener('change', (e) => {
+        const select = e.target as HTMLSelectElement;
+        const idx = parseInt(select.value);
+        if (isNaN(idx)) return;
+        equipItem(state, this.selectedUnitId!, idx);
+        this.showUnitDetail(state);
+        this.rebuildRosterPanel(state);
+      });
+    });
+  }
+
+  // ── Tech Shop ──
+
+  showTechShop(state: GameState): void {
+    const overlay = document.getElementById('tech-shop')!;
+    overlay.classList.add('visible');
+    this.rebuildTechShop(state);
+
+    const closeBtn = document.getElementById('tech-shop-close')!;
+    const newClose = closeBtn.cloneNode(true) as HTMLElement;
+    closeBtn.parentNode!.replaceChild(newClose, closeBtn);
+    newClose.addEventListener('click', () => {
+      overlay.classList.remove('visible');
+    });
+  }
+
+  private rebuildTechShop(state: GameState): void {
+    const container = document.getElementById('tech-shop-items');
+    if (!container) return;
+
+    this.setText('ts-bp', String(state.bp));
+
+    if (!state.techShop || state.techShop.length === 0) {
+      container.innerHTML = '<div style="text-align:center;color:rgba(240,230,211,0.4);padding:20px;">No upgrades available</div>';
+      return;
+    }
+
+    let html = '';
+    for (const tech of state.techShop) {
+      const affordable = state.bp >= tech.cost;
+      const disabledClass = affordable ? '' : ' disabled';
+      const catClass = `tech-cat-${tech.category}`;
+
+      html += `<div class="tech-card${disabledClass}" data-tech-id="${tech.id}">`;
+      html += `<div class="tech-card-info">`;
+      html += `<div class="tech-card-name">${tech.name}</div>`;
+      html += `<div class="tech-card-desc">${tech.description}</div>`;
+      html += `<span class="tech-card-category ${catClass}">${tech.category}</span>`;
+      html += `</div>`;
+      html += `<div class="tech-card-cost">${tech.cost} BP</div>`;
+      html += `</div>`;
+    }
+
+    container.innerHTML = html;
+
+    // Bind purchase handlers
+    container.querySelectorAll('.tech-card:not(.disabled)').forEach(card => {
+      card.addEventListener('click', () => {
+        const techId = (card as HTMLElement).dataset.techId!;
+        const success = purchaseTech(state, techId);
+        if (success) {
+          SFX.click();
+          this.rebuildTechShop(state);
+        }
+      });
+    });
+  }
+
+  // ── Card Selection ──
+
+  showCardSelection(state: GameState, onDone: () => void): void {
+    generateCardChoices(state);
+    const overlay = document.getElementById('card-selection')!;
+    const container = document.getElementById('card-choices')!;
+    overlay.classList.add('visible');
+
+    SFX.cardReveal();
+
+    if (!state.cardChoices) {
+      overlay.classList.remove('visible');
+      onDone();
+      return;
+    }
+
+    let html = '';
+    for (let i = 0; i < state.cardChoices.length; i++) {
+      const card = state.cardChoices[i];
+      html += `<div class="reward-card rarity-${card.rarity}" data-card-index="${i}">`;
+      html += `<div class="reward-card-name">${card.name}</div>`;
+      html += `<div class="reward-card-desc">${card.description}</div>`;
+      html += `<div class="reward-card-type">${card.type.replace('_', ' ')}</div>`;
+      html += `</div>`;
+    }
+
+    container.innerHTML = html;
+
+    container.querySelectorAll('.reward-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const idx = parseInt((card as HTMLElement).dataset.cardIndex!);
+        selectCard(state, idx);
+        SFX.collect();
+        overlay.classList.remove('visible');
+        onDone();
+      });
+    });
+  }
+
+  // ── Relics Bar ──
+
+  private updateRelicsBar(state: GameState): void {
+    const bar = document.getElementById('relics-bar');
+    if (!bar) return;
+
+    if (state.activeRelics.length === 0) {
+      bar.innerHTML = '';
+      return;
+    }
+
+    let html = '';
+    for (const relicId of state.activeRelics) {
+      const relic = RELICS.find(r => r.id === relicId);
+      if (relic) {
+        html += `<span class="relic-badge" title="${relic.description}">${relic.name}</span>`;
+      }
+    }
+    bar.innerHTML = html;
+  }
+
   // ── Hover tooltip ──
 
   updateHoverTooltip(input: InputState, state: GameState): void {
     const tooltip = document.getElementById('hex-hover')!;
+    if (this.isMobile) {
+      tooltip.classList.remove('visible');
+      return;
+    }
     const hovered = input.hoveredHex;
     const selected = input.selectedHex;
 
-    // Don't show hover tooltip if this hex is selected
     if (!hovered || (selected && hovered.q === selected.q && hovered.r === selected.r)) {
       tooltip.classList.remove('visible');
       return;
@@ -179,8 +550,14 @@ export class HUD {
     const text = this.tileSummary(tile, state);
     tooltip.textContent = text;
     tooltip.classList.add('visible');
-    tooltip.style.left = (input.lastMouseX + 16) + 'px';
-    tooltip.style.top = (input.lastMouseY - 8) + 'px';
+
+    let left = input.lastMouseX + 16;
+    let top = input.lastMouseY - 8;
+    const rect = tooltip.getBoundingClientRect();
+    if (left + rect.width > window.innerWidth) left = input.lastMouseX - rect.width - 8;
+    if (top + rect.height > window.innerHeight) top = input.lastMouseY - rect.height - 8;
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
   }
 
   // ── Selection detail panel ──
@@ -206,7 +583,6 @@ export class HUD {
 
     panel.classList.add('visible');
 
-    // Only rebuild panel HTML when selection changes (not every frame)
     if (key === this.lastSelectedKey) return;
     this.lastSelectedKey = key;
 
@@ -245,7 +621,6 @@ export class HUD {
       SFX.defeat();
     }
 
-    // Wire continue button (replace to remove old listeners)
     const newBtn = btn.cloneNode(true) as HTMLElement;
     btn.parentNode!.replaceChild(newBtn, btn);
     newBtn.addEventListener('click', () => {
@@ -254,12 +629,12 @@ export class HUD {
     });
   }
 
-  /** Force panel to rebuild (e.g. after a building is placed) */
+  /** Force panel to rebuild */
   private forceRefreshPanel(state: GameState, coord: HexCoord): void {
     const content = document.getElementById('hex-info-content');
     const tile = state.grid.tiles.get(hexKey(coord));
     if (!content || !tile) return;
-    this.lastSelectedKey = null; // reset so next update rebuilds
+    this.lastSelectedKey = null;
     this.rebuildSelectionContent(content, tile, coord, state);
     this.lastSelectedKey = hexKey(coord);
   }
@@ -270,7 +645,15 @@ export class HUD {
     coord: HexCoord,
     state: GameState,
   ): void {
-    let html = `<div class="info-header">${this.terrainLabel(tile.terrain)}</div>`;
+    let html = '';
+    if (this.isMobile) {
+      html += `<button id="hex-info-close" style="
+        position:absolute; top:8px; right:10px;
+        background:none; border:none; color:#e0d8c0;
+        font-size:22px; cursor:pointer; line-height:1; padding:2px 6px;
+      ">&times;</button>`;
+    }
+    html += `<div class="info-header">${this.terrainLabel(tile.terrain)}</div>`;
     html += `<div class="info-row">Position: ${coord.q}, ${coord.r}</div>`;
 
     if (tile.deposit) {
@@ -284,9 +667,15 @@ export class HUD {
         html += `<div class="info-section">`;
         html += `<div class="info-row"><b>${def.name}</b></div>`;
         if (def.produces) {
-          html += `<div class="info-row">Produces: +${def.productionRate} ${def.produces}/phase</div>`;
+          const rate = Math.floor(def.productionRate * state.gatherRateMultiplier);
+          html += `<div class="info-row">Produces: +${rate} ${def.produces}/phase</div>`;
         }
         html += `</div>`;
+
+        // Blacksmith: show crafting UI
+        if (building.type === 'blacksmith') {
+          html += this.renderBlacksmithPanel(state);
+        }
 
         // Show trainable units for military buildings
         const trainable = Object.values(UNIT_DEFS).filter((u) => u.trainedAt === building.type);
@@ -306,15 +695,18 @@ export class HUD {
         }
       }
     } else {
-      // Show buildable options as clickable buttons
       const buildable = this.getBuildableHere(tile, state);
       if (buildable.length > 0) {
         html += `<div class="info-section">`;
         html += `<div class="info-row"><b>Build:</b></div>`;
         for (const entry of buildable) {
-          const affordable = canAfford(state.resources, entry.cost);
+          const adjustedCost: Partial<Resources> = {};
+          for (const [res, amount] of Object.entries(entry.cost)) {
+            if (amount) adjustedCost[res as keyof Resources] = Math.floor(amount * state.buildingCostMultiplier);
+          }
+          const affordable = canAfford(state.resources, adjustedCost);
           const disabledClass = affordable ? '' : ' disabled';
-          const costStr = this.formatCost(entry.cost);
+          const costStr = this.formatCost(adjustedCost);
           html += `<button class="build-btn${disabledClass}" data-building="${entry.type}">`;
           html += `<span class="build-name">${entry.name}</span>`;
           html += `<span class="build-cost">${costStr}</span>`;
@@ -326,7 +718,7 @@ export class HUD {
 
     content.innerHTML = html;
 
-    // Bind click handlers to build buttons
+    // Bind build buttons
     content.querySelectorAll('.build-btn:not(.disabled)').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -340,7 +732,7 @@ export class HUD {
       });
     });
 
-    // Bind click handlers to train buttons
+    // Bind train buttons
     content.querySelectorAll('.train-btn:not(.disabled)').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -349,9 +741,82 @@ export class HUD {
         if (result) {
           SFX.train();
           this.forceRefreshPanel(state, coord);
+          if (this.rosterVisible) this.rebuildRosterPanel(state);
         }
       });
     });
+
+    // Bind craft buttons
+    content.querySelectorAll('.craft-btn:not(.disabled)').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const eqId = (btn as HTMLElement).dataset.equipment!;
+        const result = craftEquipment(state, eqId);
+        if (result) {
+          SFX.collect();
+          this.forceRefreshPanel(state, coord);
+          if (this.rosterVisible) this.rebuildRosterPanel(state);
+        }
+      });
+    });
+
+    // Bind blacksmith upgrade
+    content.querySelector('.upgrade-bs-btn:not(.disabled)')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const result = upgradeBlacksmith(state);
+      if (result) {
+        SFX.build();
+        this.forceRefreshPanel(state, coord);
+      }
+    });
+
+    // Mobile close button
+    document.getElementById('hex-info-close')?.addEventListener('click', () => {
+      if (this.inputState) this.inputState.selectedHex = null;
+      document.getElementById('hex-info')?.classList.remove('visible');
+      this.lastSelectedKey = null;
+    });
+  }
+
+  private renderBlacksmithPanel(state: GameState): string {
+    let html = `<div class="info-section">`;
+    html += `<div class="info-row"><b>Forge</b> <span style="font-size:10px;color:#c8a03c;">(Tier: ${this.capitalize(state.blacksmithTier)})</span></div>`;
+
+    // Upgrade button
+    const upgradeCost = getBlacksmithUpgradeCost(state.blacksmithTier);
+    if (upgradeCost) {
+      const nextIdx = TIER_ORDER.indexOf(state.blacksmithTier) + 1;
+      const nextTier = TIER_ORDER[nextIdx];
+      const affordable = canAfford(state.resources, upgradeCost);
+      const disabledClass = affordable ? '' : ' disabled';
+      html += `<button class="upgrade-bs-btn${disabledClass}">`;
+      html += `Upgrade to ${this.capitalize(nextTier)} (${this.formatCost(upgradeCost)})`;
+      html += `</button>`;
+    }
+
+    // Craftable equipment
+    const craftable = getCraftableEquipment(state);
+    for (const eq of craftable) {
+      const affordable = canAfford(state.resources, eq.craftCost);
+      const disabledClass = affordable ? '' : ' disabled';
+      const costStr = this.formatCost(eq.craftCost);
+      const modStr = this.formatModifiers(eq);
+      html += `<button class="craft-btn${disabledClass}" data-equipment="${eq.id}">`;
+      html += `<span class="build-name">${eq.name} <span style="font-size:9px;color:#7ab0d4;">${modStr}</span></span>`;
+      html += `<span class="build-cost">${costStr}</span>`;
+      html += `</button>`;
+    }
+    html += `</div>`;
+    return html;
+  }
+
+  private formatModifiers(eq: { modifiers: Record<string, number | undefined>; bonusLives?: number }): string {
+    const parts: string[] = [];
+    if (eq.modifiers.attack) parts.push(`+${eq.modifiers.attack}ATK`);
+    if (eq.modifiers.maxHp) parts.push(`+${eq.modifiers.maxHp}HP`);
+    if (eq.modifiers.speed) parts.push(`${(eq.modifiers.speed ?? 0) > 0 ? '+' : ''}${eq.modifiers.speed}SPD`);
+    if (eq.bonusLives) parts.push(`+${eq.bonusLives}Life`);
+    return parts.join(' ');
   }
 
   // ── Debug panel ──
@@ -366,7 +831,6 @@ export class HUD {
     closeBtn?.addEventListener('click', () => panel.classList.remove('debug-open'));
   }
 
-  /** Wire up debug buttons that need game state access. Call once after state is created. */
   bindDebugActions(state: GameState, onRerender: () => void): void {
     document.getElementById('dbg-add-resources')?.addEventListener('click', () => {
       state.resources.wood += 50;
@@ -395,6 +859,9 @@ export class HUD {
       console.log('Game State:', state);
       console.log('Buildings:', [...state.buildings.values()]);
       console.log('Roster:', [...state.roster.values()]);
+      console.log('Equipment Inventory:', state.equipmentInventory);
+      console.log('Tech Purchased:', [...state.purchasedTech]);
+      console.log('Relics:', state.activeRelics);
     });
 
     document.getElementById('dbg-new-seed')?.addEventListener('click', () => {
@@ -433,11 +900,7 @@ export class HUD {
 
   private tileSummary(tile: HexTile, state: GameState): string {
     let text = this.terrainLabel(tile.terrain);
-
-    if (tile.deposit) {
-      text += ` - ${this.capitalize(tile.deposit)} deposit`;
-    }
-
+    if (tile.deposit) text += ` - ${this.capitalize(tile.deposit)} deposit`;
     if (tile.buildingId) {
       const building = state.buildings.get(tile.buildingId);
       if (building) {
@@ -445,7 +908,6 @@ export class HUD {
         text += ` [${def.name}]`;
       }
     }
-
     return text;
   }
 
