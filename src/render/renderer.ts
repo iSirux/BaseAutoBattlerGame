@@ -468,7 +468,7 @@ export class GameRenderer {
           const label = new Text({ text: `+${rate}`, style: PRODUCTION_TEXT_STYLE, resolution: TEXT_RESOLUTION });
           label.anchor.set(0.5, 0);
           label.x = center.x;
-          label.y = center.y + HEX_SIZE * 0.2;
+          label.y = center.y + HEX_SIZE * 0.35;
           this.gridLayer.addChild(label);
         }
       }

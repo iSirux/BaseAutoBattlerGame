@@ -91,6 +91,7 @@ export function createUnit(defId: string): Unit {
     id: uid('u'),
     defId,
     stats: { ...def.baseStats },
+    cooldownTimer: 0,
     lives: def.baseLives,
     maxLives: def.baseLives,
     equipment: {},
@@ -153,14 +154,21 @@ export function placeBuilding(
     return null;
   }
 
-  // Apply building cost multiplier
-  const adjustedCost: Partial<Resources> = {};
-  for (const [res, amount] of Object.entries(def.cost)) {
-    if (amount) adjustedCost[res as keyof Resources] = Math.floor(amount * state.buildingCostMultiplier);
-  }
+  // First resource building of each type is free
+  const FREE_FIRST: readonly string[] = ['lumber_mill', 'quarry', 'iron_mine'];
+  const isFirstFree = FREE_FIRST.includes(buildingType) &&
+    ![...state.buildings.values()].some(b => b.type === buildingType);
 
-  if (!canAfford(state.resources, adjustedCost)) return null;
-  spendResources(state, adjustedCost);
+  if (!isFirstFree) {
+    // Apply building cost multiplier
+    const adjustedCost: Partial<Resources> = {};
+    for (const [res, amount] of Object.entries(def.cost)) {
+      if (amount) adjustedCost[res as keyof Resources] = Math.floor(amount * state.buildingCostMultiplier);
+    }
+
+    if (!canAfford(state.resources, adjustedCost)) return null;
+    spendResources(state, adjustedCost);
+  }
 
   const building: Building = {
     id: uid('b'),
@@ -999,7 +1007,7 @@ function formatModifiers(def: EquipmentDef): string {
   const parts: string[] = [];
   if (def.modifiers.attack) parts.push(`+${def.modifiers.attack} ATK`);
   if (def.modifiers.maxHp) parts.push(`+${def.modifiers.maxHp} HP`);
-  if (def.modifiers.speed) parts.push(`${def.modifiers.speed > 0 ? '+' : ''}${def.modifiers.speed} SPD`);
+  if (def.modifiers.cooldown) parts.push(`${def.modifiers.cooldown > 0 ? '+' : ''}${def.modifiers.cooldown}s CD`);
   if (def.bonusLives) parts.push(`+${def.bonusLives} Life`);
   return parts.join(', ');
 }

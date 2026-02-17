@@ -18,6 +18,13 @@ import { ALL_UNIT_DEFS, ENEMY_DEFS } from '@/data/units';
 import { RELICS } from '@/data/relics';
 import { SFX } from '@/audio/sfx';
 
+const FREE_FIRST_BUILDINGS: readonly string[] = ['lumber_mill', 'quarry', 'iron_mine'];
+
+function isFirstFree(type: string, state: GameState): boolean {
+  return FREE_FIRST_BUILDINGS.includes(type) &&
+    ![...state.buildings.values()].some(b => b.type === type);
+}
+
 const BUILDING_ICON_COLORS: Record<string, string> = {
   lumber_mill: '#c49a3c',
   quarry: '#b0b0b0',
@@ -103,12 +110,34 @@ export class HUD {
       const def = BUILDING_DEFS[type];
       if (!def) continue;
 
-      // Apply building cost multiplier for affordability check
-      const adjustedCost: Partial<Resources> = {};
-      for (const [res, amount] of Object.entries(def.cost)) {
-        if (amount) adjustedCost[res as keyof Resources] = Math.floor(amount * state.buildingCostMultiplier);
+      const firstFree = isFirstFree(type, state);
+      let affordable: boolean;
+      if (firstFree) {
+        affordable = true;
+      } else {
+        const adjustedCost: Partial<Resources> = {};
+        for (const [res, amount] of Object.entries(def.cost)) {
+          if (amount) adjustedCost[res as keyof Resources] = Math.floor(amount * state.buildingCostMultiplier);
+        }
+        affordable = canAfford(state.resources, adjustedCost);
       }
-      const affordable = canAfford(state.resources, adjustedCost);
+
+      // Update cost label
+      const costEl = el.querySelector('.build-bar-cost') as HTMLElement | null;
+      if (costEl) {
+        if (firstFree) {
+          costEl.textContent = 'Free';
+          costEl.style.color = '#80e060';
+        } else {
+          const adjustedCost: Partial<Resources> = {};
+          for (const [res, amount] of Object.entries(def.cost)) {
+            if (amount) adjustedCost[res as keyof Resources] = Math.floor(amount * state.buildingCostMultiplier);
+          }
+          costEl.textContent = this.formatCost(adjustedCost);
+          costEl.style.color = '';
+        }
+      }
+
       el.classList.toggle('disabled', !affordable);
       el.classList.toggle('active', placing === type);
     }
@@ -336,7 +365,7 @@ export class HUD {
     let html = `<div class="roster-unit${selected}" data-unit-id="${id}">`;
     html += `<div class="roster-unit-info">`;
     html += `<div class="roster-unit-name">${def.name} <span class="roster-unit-lives">${hearts}</span></div>`;
-    html += `<div class="roster-unit-stats">HP:${unit.stats.maxHp} ATK:${unit.stats.attack} SPD:${unit.stats.speed}</div>`;
+    html += `<div class="roster-unit-stats">HP:${unit.stats.maxHp} ATK:${unit.stats.attack} CD:${unit.stats.cooldown}s</div>`;
     if (equipNames.length > 0) {
       html += `<div style="font-size:9px;color:#7ab0d4;">${equipNames.join(', ')}</div>`;
     }
@@ -369,7 +398,7 @@ export class HUD {
     const def = ALL_UNIT_DEFS[unit.defId];
     let html = `<div class="unit-detail-header">${def?.name ?? 'Unit'}</div>`;
     html += `<div class="unit-detail-stats">`;
-    html += `HP: ${unit.stats.maxHp} | ATK: ${unit.stats.attack} | SPD: ${unit.stats.speed}<br>`;
+    html += `HP: ${unit.stats.maxHp} | ATK: ${unit.stats.attack} | CD: ${unit.stats.cooldown}s<br>`;
     html += `Lives: ${unit.lives}/${unit.maxLives}<br>`;
     html += `Role: ${def?.role ?? '?'}`;
     html += `</div>`;
@@ -650,7 +679,7 @@ export class HUD {
     html += `<div class="info-row"><b>Role:</b> ${this.capitalize(def.role)}</div>`;
     html += `<div class="info-row"><b>HP:</b> ${def.baseStats.maxHp}</div>`;
     html += `<div class="info-row"><b>ATK:</b> ${def.baseStats.attack}</div>`;
-    html += `<div class="info-row"><b>SPD:</b> ${def.baseStats.speed}</div>`;
+    html += `<div class="info-row"><b>CD:</b> ${def.baseStats.cooldown}s</div>`;
     html += `<div class="info-row"><b>Lives:</b> ${def.baseLives}</div>`;
     html += `</div>`;
 
@@ -687,7 +716,7 @@ export class HUD {
     html += `<div class="info-row"><b>Role:</b> ${this.capitalize(def.role)}</div>`;
     html += `<div class="info-row"><b>HP:</b> ${unit.stats.maxHp}</div>`;
     html += `<div class="info-row"><b>ATK:</b> ${unit.stats.attack}</div>`;
-    html += `<div class="info-row"><b>SPD:</b> ${unit.stats.speed}</div>`;
+    html += `<div class="info-row"><b>CD:</b> ${unit.stats.cooldown}s</div>`;
     html += `<div class="info-row"><b>Lives:</b> ${unit.lives}/${unit.maxLives}</div>`;
     html += `</div>`;
 
@@ -852,13 +881,21 @@ export class HUD {
         html += `<div class="info-section">`;
         html += `<div class="info-row"><b>Build:</b></div>`;
         for (const entry of buildable) {
-          const adjustedCost: Partial<Resources> = {};
-          for (const [res, amount] of Object.entries(entry.cost)) {
-            if (amount) adjustedCost[res as keyof Resources] = Math.floor(amount * state.buildingCostMultiplier);
+          const firstFree = isFirstFree(entry.type, state);
+          let affordable: boolean;
+          let costStr: string;
+          if (firstFree) {
+            affordable = true;
+            costStr = '<span style="color:#80e060;">Free</span>';
+          } else {
+            const adjustedCost: Partial<Resources> = {};
+            for (const [res, amount] of Object.entries(entry.cost)) {
+              if (amount) adjustedCost[res as keyof Resources] = Math.floor(amount * state.buildingCostMultiplier);
+            }
+            affordable = canAfford(state.resources, adjustedCost);
+            costStr = this.formatCost(adjustedCost);
           }
-          const affordable = canAfford(state.resources, adjustedCost);
           const disabledClass = affordable ? '' : ' disabled';
-          const costStr = this.formatCost(adjustedCost);
           html += `<button class="build-btn${disabledClass}" data-building="${entry.type}">`;
           html += `<span class="build-name">${entry.name}</span>`;
           html += `<span class="build-cost">${costStr}</span>`;
@@ -979,7 +1016,7 @@ export class HUD {
     const parts: string[] = [];
     if (eq.modifiers.attack) parts.push(`+${eq.modifiers.attack}ATK`);
     if (eq.modifiers.maxHp) parts.push(`+${eq.modifiers.maxHp}HP`);
-    if (eq.modifiers.speed) parts.push(`${(eq.modifiers.speed ?? 0) > 0 ? '+' : ''}${eq.modifiers.speed}SPD`);
+    if (eq.modifiers.cooldown) parts.push(`${(eq.modifiers.cooldown ?? 0) > 0 ? '+' : ''}${eq.modifiers.cooldown}s CD`);
     if (eq.bonusLives) parts.push(`+${eq.bonusLives}Life`);
     return parts.join(' ');
   }

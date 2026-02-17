@@ -84,8 +84,8 @@ export class ArenaRenderer {
   /** Slot arrays for targeting arrows — populated during preview layout */
   private playerFrontlineIds: (string | null)[] = [];
   private enemyFrontlineIds: (string | null)[] = [];
-  private playerRangedIds: string[] = [];
-  private enemyRangedIds: string[] = [];
+  private playerRangedIds: (string | null)[] = [];
+  private enemyRangedIds: (string | null)[] = [];
 
   /** Callback when an enemy preview unit is clicked */
   onEnemyClick: ((defId: string, screenX: number, screenY: number) => void) | null = null;
@@ -236,11 +236,12 @@ export class ArenaRenderer {
       this.createUnitSprite(melee[i], pos.x, pos.y - row * 35, 0.4, true);
     }
 
-    // Ranged (behind frontline)
-    for (let i = 0; i < ranged.length; i++) {
-      const pos = this.slotPosition(i, Math.max(ranged.length, this.battleWidth), 'enemy', 'ranged');
+    // Ranged (behind frontline, same slot count as frontline)
+    this.enemyRangedIds = new Array(this.battleWidth).fill(null);
+    for (let i = 0; i < Math.min(ranged.length, this.battleWidth); i++) {
+      const pos = this.slotPosition(i, this.battleWidth, 'enemy', 'ranged');
       this.createUnitSprite(ranged[i], pos.x, pos.y, 0.5, true);
-      this.enemyRangedIds.push(ranged[i].id);
+      this.enemyRangedIds[i] = ranged[i].id;
     }
 
     // Enemy count label
@@ -316,11 +317,12 @@ export class ArenaRenderer {
       this.createUnitSprite(activeMelee[i], pos.x, pos.y + (row + 1) * 35, 0.6, true);
     }
 
-    // Active ranged → ranged row
-    for (let i = 0; i < activeRanged.length; i++) {
-      const pos = this.slotPosition(i, Math.max(activeRanged.length, this.battleWidth), 'player', 'ranged');
+    // Active ranged → ranged row (same slot count as frontline)
+    this.playerRangedIds = new Array(this.battleWidth).fill(null);
+    for (let i = 0; i < Math.min(activeRanged.length, this.battleWidth); i++) {
+      const pos = this.slotPosition(i, this.battleWidth, 'player', 'ranged');
       this.createUnitSprite(activeRanged[i], pos.x, pos.y, 0.7, true);
-      this.playerRangedIds.push(activeRanged[i].id);
+      this.playerRangedIds[i] = activeRanged[i].id;
     }
 
     // Reinforcements
@@ -464,9 +466,19 @@ export class ArenaRenderer {
       gfx.circle(ePos.x, ePos.y, radius);
       gfx.stroke({ color, width: 1, alpha });
 
+      // Enemy ranged slots
+      const erPos = this.slotPosition(i, battleWidth, 'enemy', 'ranged');
+      gfx.circle(erPos.x, erPos.y, radius);
+      gfx.stroke({ color, width: 1, alpha });
+
       // Player frontline slots
       const pPos = this.slotPosition(i, battleWidth, 'player', 'frontline');
       gfx.circle(pPos.x, pPos.y, radius);
+      gfx.stroke({ color, width: 1, alpha });
+
+      // Player ranged slots
+      const prPos = this.slotPosition(i, battleWidth, 'player', 'ranged');
+      gfx.circle(prPos.x, prPos.y, radius);
       gfx.stroke({ color, width: 1, alpha });
     }
 
@@ -537,15 +549,16 @@ export class ArenaRenderer {
       if (target) drawArrowToTarget(sprite, target);
     }
 
-    // Player ranged → target first enemy frontline unit (tick 0 logic)
-    const enemyFrontlineTargets = this.enemyFrontlineIds.filter((id): id is string => id !== null);
-    if (enemyFrontlineTargets.length > 0) {
-      for (const id of this.playerRangedIds) {
-        const sprite = this.unitSprites.get(id);
-        if (!sprite) continue;
-        const target = this.unitSprites.get(enemyFrontlineTargets[0]);
-        if (target) drawArrowToTarget(sprite, target);
-      }
+    // Player ranged → target closest enemy frontline based on slot
+    for (let i = 0; i < this.playerRangedIds.length; i++) {
+      const id = this.playerRangedIds[i];
+      if (!id) continue;
+      const sprite = this.unitSprites.get(id);
+      if (!sprite) continue;
+      const targetId = this.findPreviewTarget(this.enemyFrontlineIds, i);
+      if (!targetId) continue;
+      const target = this.unitSprites.get(targetId);
+      if (target) drawArrowToTarget(sprite, target);
     }
 
     // Enemy frontline → find target in player frontline
@@ -560,15 +573,16 @@ export class ArenaRenderer {
       if (target) drawArrowToTarget(sprite, target);
     }
 
-    // Enemy ranged → target first player frontline unit (tick 0 logic)
-    const playerFrontlineTargets = this.playerFrontlineIds.filter((id): id is string => id !== null);
-    if (playerFrontlineTargets.length > 0) {
-      for (const id of this.enemyRangedIds) {
-        const sprite = this.unitSprites.get(id);
-        if (!sprite) continue;
-        const target = this.unitSprites.get(playerFrontlineTargets[0]);
-        if (target) drawArrowToTarget(sprite, target);
-      }
+    // Enemy ranged → target closest player frontline based on slot
+    for (let i = 0; i < this.enemyRangedIds.length; i++) {
+      const id = this.enemyRangedIds[i];
+      if (!id) continue;
+      const sprite = this.unitSprites.get(id);
+      if (!sprite) continue;
+      const targetId = this.findPreviewTarget(this.playerFrontlineIds, i);
+      if (!targetId) continue;
+      const target = this.unitSprites.get(targetId);
+      if (target) drawArrowToTarget(sprite, target);
     }
   }
 
@@ -589,11 +603,13 @@ export class ArenaRenderer {
       }
     }
 
-    // Enemy ranged
-    for (let i = 0; i < snapshot.enemyRanged.length; i++) {
+    // Enemy ranged (slotted like frontline)
+    for (let i = 0; i < snapshot.battleWidth; i++) {
       const unit = snapshot.enemyRanged[i];
-      const pos = this.slotPosition(i, Math.max(snapshot.enemyRanged.length, snapshot.battleWidth), 'enemy', 'ranged');
-      this.createUnitSprite(unit, pos.x, pos.y);
+      if (unit) {
+        const pos = this.slotPosition(i, snapshot.battleWidth, 'enemy', 'ranged');
+        this.createUnitSprite(unit, pos.x, pos.y);
+      }
     }
 
     // Enemy reinforcements
@@ -614,11 +630,13 @@ export class ArenaRenderer {
       }
     }
 
-    // Player ranged
-    for (let i = 0; i < snapshot.playerRanged.length; i++) {
+    // Player ranged (slotted like frontline)
+    for (let i = 0; i < snapshot.battleWidth; i++) {
       const unit = snapshot.playerRanged[i];
-      const pos = this.slotPosition(i, Math.max(snapshot.playerRanged.length, snapshot.battleWidth), 'player', 'ranged');
-      this.createUnitSprite(unit, pos.x, pos.y);
+      if (unit) {
+        const pos = this.slotPosition(i, snapshot.battleWidth, 'player', 'ranged');
+        this.createUnitSprite(unit, pos.x, pos.y);
+      }
     }
 
     // Player reinforcements

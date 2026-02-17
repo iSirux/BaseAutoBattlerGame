@@ -24,6 +24,7 @@ export function createBattleState(
         id: uid('e'),
         defId: entry.defId,
         stats: { ...def.baseStats },
+        cooldownTimer: 0,
         lives: def.baseLives,
         maxLives: def.baseLives,
         equipment: {},
@@ -48,6 +49,16 @@ export function createBattleState(
     }
   }
 
+  // Reset cooldown timers for all units entering battle
+  const allPlayerUnits = [...playerFrontline, ...playerRanged, ...reinforcements];
+  for (const unit of allPlayerUnits) {
+    unit.cooldownTimer = 0;
+  }
+  const allEnemyUnits = [...enemyMelee, ...enemyRanged];
+  for (const unit of allEnemyUnits) {
+    unit.cooldownTimer = 0;
+  }
+
   // Fill frontline slots
   const frontline: (Unit | null)[] = new Array(battleWidth).fill(null);
   for (let i = 0; i < Math.min(playerFrontline.length, battleWidth); i++) {
@@ -62,15 +73,26 @@ export function createBattleState(
   // Remaining enemy melee go to a virtual reinforcement queue
   const enemyReinforcements = enemyMelee.slice(battleWidth);
 
+  // Fill ranged slots (same width as frontline)
+  const rangedSlots: (Unit | null)[] = new Array(battleWidth).fill(null);
+  for (let i = 0; i < Math.min(playerRanged.length, battleWidth); i++) {
+    rangedSlots[i] = playerRanged[i];
+  }
+
+  const enemyRangedSlots: (Unit | null)[] = new Array(battleWidth).fill(null);
+  for (let i = 0; i < Math.min(enemyRanged.length, battleWidth); i++) {
+    enemyRangedSlots[i] = enemyRanged[i];
+  }
+
   return {
     frontline,
-    ranged: [...playerRanged],
+    ranged: rangedSlots,
     reinforcementQueue: [
       ...playerFrontline.slice(battleWidth),
       ...reinforcements,
     ],
     enemyFrontline,
-    enemyRanged,
+    enemyRanged: enemyRangedSlots,
     battleWidth,
     tick: 0,
     result: null,
@@ -78,16 +100,17 @@ export function createBattleState(
   } as BattleState & { _enemyReinforcements: Unit[] };
 }
 
-/** Get the attack interval for a unit based on its speed stat.
- *  Higher speed = lower interval = attacks more often.
- *  Speed 7 -> every tick, Speed 2 -> every 6th tick. */
-function getAttackInterval(unit: Unit): number {
-  return Math.max(1, 8 - unit.stats.speed);
-}
+/** Time delta per battle tick (seconds) */
+const TICK_DELTA = 0.1;
 
-/** Check if a unit should attack on this tick based on its speed */
-function canAttackThisTick(unit: Unit, tick: number): boolean {
-  return tick % getAttackInterval(unit) === 0;
+/** Advance a unit's cooldown timer, returns true if the unit should attack this tick */
+function advanceCooldown(unit: Unit): boolean {
+  unit.cooldownTimer += TICK_DELTA;
+  if (unit.cooldownTimer >= unit.stats.cooldown) {
+    unit.cooldownTimer -= unit.stats.cooldown;
+    return true;
+  }
+  return false;
 }
 
 /** Find a melee target: prefer the opposing slot, then scan outward for nearest enemy */
@@ -115,13 +138,13 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
 
   const extState = state as BattleState & { _enemyReinforcements?: Unit[] };
 
-  // ── Combat: units attack based on their speed stat ──
+  // ── Combat: units attack based on their cooldown timer ──
 
   // Player frontline attacks enemy frontline
   // Units prefer the enemy in their slot; if empty, retarget to nearest enemy
   for (let i = 0; i < state.battleWidth; i++) {
     const attacker = state.frontline[i];
-    if (attacker && canAttackThisTick(attacker, state.tick)) {
+    if (attacker && advanceCooldown(attacker)) {
       const target = findMeleeTarget(state.enemyFrontline, i, state.battleWidth);
       if (target) {
         applyDamage(target, attacker.stats.attack);
@@ -133,7 +156,7 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
   // Enemy frontline attacks player frontline
   for (let i = 0; i < state.battleWidth; i++) {
     const attacker = state.enemyFrontline[i];
-    if (attacker && canAttackThisTick(attacker, state.tick)) {
+    if (attacker && advanceCooldown(attacker)) {
       const target = findMeleeTarget(state.frontline, i, state.battleWidth);
       if (target) {
         applyDamage(target, attacker.stats.attack);
@@ -142,23 +165,23 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
     }
   }
 
-  // Player ranged attack enemy frontline (speed-gated)
-  for (const archer of state.ranged) {
-    if (!canAttackThisTick(archer, state.tick)) continue;
-    const targets = state.enemyFrontline.filter((u): u is Unit => u !== null);
-    if (targets.length > 0) {
-      const target = targets[state.tick % targets.length];
+  // Player ranged attack enemy frontline (cooldown-gated, target closest to slot)
+  for (let i = 0; i < state.battleWidth; i++) {
+    const archer = state.ranged[i];
+    if (!archer || !advanceCooldown(archer)) continue;
+    const target = findMeleeTarget(state.enemyFrontline, i, state.battleWidth);
+    if (target) {
       applyDamage(target, archer.stats.attack);
       sink?.({ type: 'ranged_attack', attackerId: archer.id, targetId: target.id, damage: archer.stats.attack, targetHp: target.stats.hp, attackerSide: 'player' });
     }
   }
 
-  // Enemy ranged attack player frontline (speed-gated)
-  for (const archer of state.enemyRanged) {
-    if (!canAttackThisTick(archer, state.tick)) continue;
-    const targets = state.frontline.filter((u): u is Unit => u !== null);
-    if (targets.length > 0) {
-      const target = targets[state.tick % targets.length];
+  // Enemy ranged attack player frontline (cooldown-gated, target closest to slot)
+  for (let i = 0; i < state.battleWidth; i++) {
+    const archer = state.enemyRanged[i];
+    if (!archer || !advanceCooldown(archer)) continue;
+    const target = findMeleeTarget(state.frontline, i, state.battleWidth);
+    if (target) {
       applyDamage(target, archer.stats.attack);
       sink?.({ type: 'ranged_attack', attackerId: archer.id, targetId: target.id, damage: archer.stats.attack, targetHp: target.stats.hp, attackerSide: 'enemy' });
     }
@@ -222,63 +245,77 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
   }
 
   // Remove dead ranged units (handle multi-life)
-  for (const u of state.ranged) {
-    if (u.stats.hp <= 0) {
+  for (let i = 0; i < state.battleWidth; i++) {
+    const u = state.ranged[i];
+    if (u && u.stats.hp <= 0) {
       u.lives--;
-      sink?.({ type: 'unit_died', unitId: u.id, side: 'player', slotIndex: -1, livesRemaining: u.lives });
-      if (u.lives > 0) u.stats.hp = u.stats.maxHp;
+      sink?.({ type: 'unit_died', unitId: u.id, side: 'player', slotIndex: i, livesRemaining: u.lives });
+      if (u.lives <= 0) {
+        state.ranged[i] = null;
+      } else {
+        u.stats.hp = u.stats.maxHp;
+      }
     }
   }
-  for (const u of state.enemyRanged) {
-    if (u.stats.hp <= 0) {
+  for (let i = 0; i < state.battleWidth; i++) {
+    const u = state.enemyRanged[i];
+    if (u && u.stats.hp <= 0) {
       u.lives--;
-      sink?.({ type: 'unit_died', unitId: u.id, side: 'enemy', slotIndex: -1, livesRemaining: u.lives });
-      if (u.lives > 0) u.stats.hp = u.stats.maxHp;
+      sink?.({ type: 'unit_died', unitId: u.id, side: 'enemy', slotIndex: i, livesRemaining: u.lives });
+      if (u.lives <= 0) {
+        state.enemyRanged[i] = null;
+      } else {
+        u.stats.hp = u.stats.maxHp;
+      }
     }
   }
-  state.ranged = state.ranged.filter((u) => u.lives > 0);
-  state.enemyRanged = state.enemyRanged.filter((u) => u.lives > 0);
 
   // If no player frontline and ranged are exposed, enemies hit ranged
   const playerFrontAlive = state.frontline.some((u) => u !== null);
-  if (!playerFrontAlive && state.ranged.length > 0) {
+  const playerRangedAlive = state.ranged.some((u) => u !== null);
+  if (!playerFrontAlive && playerRangedAlive) {
     sink?.({ type: 'ranged_exposed', side: 'player' });
-    for (let i = 0; i < Math.min(state.ranged.length, state.battleWidth); i++) {
-      state.frontline[i] = state.ranged[i];
+    for (let i = 0; i < state.battleWidth; i++) {
+      if (state.ranged[i]) {
+        state.frontline[i] = state.ranged[i];
+        state.ranged[i] = null;
+      }
     }
-    state.ranged = state.ranged.slice(state.battleWidth);
   }
 
   const enemyFrontAlive = state.enemyFrontline.some((u) => u !== null);
-  if (!enemyFrontAlive && state.enemyRanged.length > 0) {
+  const enemyRangedAlive = state.enemyRanged.some((u) => u !== null);
+  if (!enemyFrontAlive && enemyRangedAlive) {
     sink?.({ type: 'ranged_exposed', side: 'enemy' });
-    for (let i = 0; i < Math.min(state.enemyRanged.length, state.battleWidth); i++) {
-      state.enemyFrontline[i] = state.enemyRanged[i];
+    for (let i = 0; i < state.battleWidth; i++) {
+      if (state.enemyRanged[i]) {
+        state.enemyFrontline[i] = state.enemyRanged[i];
+        state.enemyRanged[i] = null;
+      }
     }
-    state.enemyRanged = state.enemyRanged.slice(state.battleWidth);
   }
 
   // ── Check win/loss ──
   const playerAlive =
     state.frontline.some((u) => u !== null) ||
-    state.ranged.length > 0 ||
+    state.ranged.some((u) => u !== null) ||
     state.reinforcementQueue.length > 0;
 
   const enemyAlive =
     state.enemyFrontline.some((u) => u !== null) ||
-    state.enemyRanged.length > 0 ||
+    state.enemyRanged.some((u) => u !== null) ||
     (extState._enemyReinforcements?.length ?? 0) > 0;
 
   if (!playerAlive || !enemyAlive) {
     const winner = playerAlive ? 'player' : 'enemy';
     const survivingEnemies = [
       ...state.enemyFrontline.filter((u): u is Unit => u !== null),
-      ...state.enemyRanged,
+      ...state.enemyRanged.filter((u): u is Unit => u !== null),
       ...(extState._enemyReinforcements ?? []),
     ];
     const survivingAllies = [
       ...state.frontline.filter((u): u is Unit => u !== null),
-      ...state.ranged,
+      ...state.ranged.filter((u): u is Unit => u !== null),
       ...state.reinforcementQueue,
     ];
     state.result = {
@@ -323,7 +360,9 @@ function fillFrontline(
 ): void {
   for (let i = 0; i < width; i++) {
     if (frontline[i] === null && queue.length > 0) {
-      frontline[i] = queue.shift()!;
+      const unit = queue.shift()!;
+      unit.cooldownTimer = 0;
+      frontline[i] = unit;
     }
   }
 }

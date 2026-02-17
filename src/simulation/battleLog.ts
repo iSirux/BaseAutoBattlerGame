@@ -31,10 +31,10 @@ export interface ArenaUnit {
 
 export interface ArenaSnapshot {
   playerFrontline: (ArenaUnit | null)[];
-  playerRanged: ArenaUnit[];
+  playerRanged: (ArenaUnit | null)[];
   playerReinforcements: ArenaUnit[];
   enemyFrontline: (ArenaUnit | null)[];
-  enemyRanged: ArenaUnit[];
+  enemyRanged: (ArenaUnit | null)[];
   enemyReinforcements: ArenaUnit[];
   battleWidth: number;
 }
@@ -68,10 +68,10 @@ function captureSnapshot(state: BattleState): ArenaSnapshot {
 
   return {
     playerFrontline: state.frontline.map(u => u ? unitToArenaUnit(u, 'player') : null),
-    playerRanged: state.ranged.map(u => unitToArenaUnit(u, 'player')),
+    playerRanged: state.ranged.map(u => u ? unitToArenaUnit(u, 'player') : null),
     playerReinforcements: state.reinforcementQueue.map(u => unitToArenaUnit(u, 'player')),
     enemyFrontline: state.enemyFrontline.map(u => u ? unitToArenaUnit(u, 'enemy') : null),
-    enemyRanged: state.enemyRanged.map(u => unitToArenaUnit(u, 'enemy')),
+    enemyRanged: state.enemyRanged.map(u => u ? unitToArenaUnit(u, 'enemy') : null),
     enemyReinforcements: (extState._enemyReinforcements ?? []).map(u => unitToArenaUnit(u, 'enemy')),
     battleWidth: state.battleWidth,
   };

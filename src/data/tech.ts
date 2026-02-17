@@ -23,11 +23,11 @@ export const TECH_UPGRADES: TechUpgrade[] = [
   {
     id: 'battle_drills',
     name: 'Battle Drills',
-    description: 'All units gain +1 speed.',
+    description: 'All units attack 0.15s faster.',
     category: 'combat',
     baseCost: 5,
     maxTier: 2,
-    effect: { type: 'stat_boost', stat: 'speed', value: 1 },
+    effect: { type: 'stat_boost', stat: 'cooldown', value: -0.15 },
   },
   {
     id: 'survival_training',

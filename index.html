@@ -34,20 +34,20 @@
     /* ── Resource Bar ── */
     #resource-bar {
       position: absolute;
-      top: 8px; left: 50%;
+      top: 10px; left: 50%;
       transform: translateX(-50%);
       display: flex;
-      gap: 14px;
+      gap: 18px;
       background: rgba(30, 20, 10, 0.85);
       border: 1px solid rgba(200, 160, 60, 0.4);
-      border-radius: 6px;
-      padding: 6px 14px;
-      font-size: 13px;
+      border-radius: 8px;
+      padding: 10px 20px;
+      font-size: 17px;
     }
     .resource-item {
       display: flex;
       align-items: center;
-      gap: 4px;
+      gap: 6px;
       position: relative;
       cursor: default;
     }
@@ -56,12 +56,12 @@
       position: absolute;
       top: 100%; left: 50%;
       transform: translateX(-50%);
-      margin-top: 6px;
+      margin-top: 8px;
       background: rgba(30, 20, 10, 0.95);
       border: 1px solid rgba(200, 160, 60, 0.5);
       border-radius: 5px;
-      padding: 5px 9px;
-      font-size: 11px;
+      padding: 6px 11px;
+      font-size: 13px;
       color: #f0e6d3;
       white-space: nowrap;
       pointer-events: none;
@@ -71,18 +71,18 @@
     }
     .resource-item[data-tip]:hover::after { opacity: 1; }
     .resource-icon {
-      width: 14px; height: 14px;
-      border-radius: 3px;
+      width: 18px; height: 18px;
+      border-radius: 4px;
       display: inline-block;
     }
     .res-income {
-      font-size: 10px;
+      font-size: 13px;
       color: #a0c8ff;
       opacity: 0.7;
-      margin-left: 2px;
+      margin-left: 3px;
     }
     .res-delta {
-      font-size: 10px;
+      font-size: 13px;
       opacity: 0.7;
     }
     .res-delta.positive { color: #80e060; }
@@ -92,38 +92,38 @@
     /* ── Base HP Bar ── */
     #base-hp-bar {
       position: absolute;
-      top: 46px; left: 50%;
+      top: 56px; left: 50%;
       transform: translateX(-50%);
-      width: 300px; height: 6px;
+      width: 360px; height: 8px;
       background: rgba(0, 0, 0, 0.4);
-      border-radius: 3px;
+      border-radius: 4px;
       overflow: hidden;
     }
     #base-hp-fill {
       height: 100%;
       background: #c0392b;
       transition: width 0.3s;
-      border-radius: 3px;
+      border-radius: 4px;
     }
 
     /* ── Phase / Wave indicator ── */
     #phase-bar {
       position: absolute;
-      top: 8px; right: 16px;
+      top: 10px; right: 16px;
       display: flex;
-      gap: 12px;
+      gap: 14px;
       align-items: center;
       background: rgba(30, 20, 10, 0.85);
       border: 1px solid rgba(200, 160, 60, 0.4);
-      border-radius: 6px;
-      padding: 6px 14px;
-      font-size: 13px;
+      border-radius: 8px;
+      padding: 8px 18px;
+      font-size: 16px;
     }
     #phase-label {
       text-transform: uppercase;
       letter-spacing: 2px;
       font-weight: bold;
-      font-size: 12px;
+      font-size: 15px;
       color: #c8a03c;
     }
 
@@ -145,27 +145,27 @@
     /* ── Hex Selection Panel ── */
     #hex-info {
       position: absolute;
-      top: 70px; right: 16px;
+      top: 80px; right: 16px;
       background: rgba(30, 20, 10, 0.9);
       border: 1px solid rgba(200, 160, 60, 0.4);
-      border-radius: 6px;
-      padding: 12px 16px;
-      font-size: 14px;
-      width: 220px;
+      border-radius: 8px;
+      padding: 14px 18px;
+      font-size: 16px;
+      width: 260px;
       display: none;
       line-height: 1.5;
     }
     #hex-info.visible { display: block; }
     #hex-info .info-header {
-      font-size: 16px;
+      font-size: 18px;
       font-weight: bold;
-      margin-bottom: 6px;
+      margin-bottom: 8px;
       border-bottom: 1px solid rgba(200, 160, 60, 0.3);
-      padding-bottom: 5px;
+      padding-bottom: 6px;
       color: #c8a03c;
     }
     #hex-info .info-row {
-      font-size: 13px;
+      font-size: 15px;
       color: rgba(240, 230, 211, 0.8);
     }
     #hex-info .info-section {
@@ -181,11 +181,11 @@
       background: rgba(200, 160, 60, 0.15);
       border: 1px solid rgba(200, 160, 60, 0.3);
       color: #f0e6d3;
-      border-radius: 4px;
-      padding: 5px 8px;
+      border-radius: 5px;
+      padding: 7px 10px;
       cursor: pointer;
-      font-size: 12px;
-      margin: 3px 0;
+      font-size: 14px;
+      margin: 4px 0;
       text-align: left;
       transition: background 0.1s;
     }
@@ -197,7 +197,7 @@
     .build-btn.disabled:hover { background: rgba(200, 160, 60, 0.15); }
     .build-btn .build-name { font-weight: bold; }
     .build-btn .build-cost {
-      font-size: 10px;
+      font-size: 12px;
       opacity: 0.7;
     }
 
@@ -292,27 +292,27 @@
     /* ── Build Bar ── */
     #build-bar {
       position: absolute;
-      bottom: 12px; left: 50%;
+      bottom: 14px; left: 50%;
       transform: translateX(-50%);
       display: flex;
-      gap: 4px;
+      gap: 6px;
       background: rgba(30, 20, 10, 0.9);
       border: 1px solid rgba(200, 160, 60, 0.4);
-      border-radius: 8px;
-      padding: 6px 10px;
+      border-radius: 10px;
+      padding: 8px 14px;
     }
     .build-bar-item {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 2px;
+      gap: 4px;
       background: rgba(200, 160, 60, 0.1);
       border: 2px solid rgba(200, 160, 60, 0.2);
-      border-radius: 6px;
-      padding: 6px 8px;
+      border-radius: 8px;
+      padding: 8px 12px;
       cursor: pointer;
       transition: background 0.1s, border-color 0.15s;
-      min-width: 56px;
+      min-width: 72px;
       position: relative;
     }
     .build-bar-item:hover {
@@ -332,16 +332,16 @@
       border-color: rgba(200, 160, 60, 0.2);
     }
     .build-bar-icon {
-      width: 24px; height: 24px;
-      border-radius: 4px;
+      width: 32px; height: 32px;
+      border-radius: 5px;
     }
     .build-bar-label {
-      font-size: 9px;
+      font-size: 12px;
       color: rgba(240, 230, 211, 0.7);
       white-space: nowrap;
     }
     .build-bar-cost {
-      font-size: 8px;
+      font-size: 11px;
       color: rgba(240, 230, 211, 0.45);
       white-space: nowrap;
     }
@@ -350,12 +350,12 @@
       position: absolute;
       bottom: 100%; left: 50%;
       transform: translateX(-50%);
-      margin-bottom: 6px;
+      margin-bottom: 8px;
       background: rgba(30, 20, 10, 0.95);
       border: 1px solid rgba(200, 160, 60, 0.5);
       border-radius: 5px;
-      padding: 5px 9px;
-      font-size: 11px;
+      padding: 6px 11px;
+      font-size: 13px;
       color: #f0e6d3;
       white-space: nowrap;
       pointer-events: none;
@@ -370,10 +370,10 @@
       background: rgba(200, 160, 60, 0.25);
       border: 1px solid rgba(200, 160, 60, 0.5);
       color: #f0e6d3;
-      border-radius: 4px;
-      padding: 4px 12px;
+      border-radius: 5px;
+      padding: 6px 16px;
       cursor: pointer;
-      font-size: 12px;
+      font-size: 15px;
       font-weight: bold;
       transition: background 0.15s;
     }
@@ -382,7 +382,7 @@
 
     /* ── Roster Label ── */
     #roster-label {
-      font-size: 11px;
+      font-size: 14px;
       color: rgba(240, 230, 211, 0.7);
     }
 
@@ -395,11 +395,11 @@
       background: rgba(139, 60, 40, 0.2);
       border: 1px solid rgba(139, 60, 40, 0.4);
       color: #f0e6d3;
-      border-radius: 4px;
-      padding: 5px 8px;
+      border-radius: 5px;
+      padding: 7px 10px;
       cursor: pointer;
-      font-size: 12px;
-      margin: 3px 0;
+      font-size: 14px;
+      margin: 4px 0;
       text-align: left;
       transition: background 0.1s;
     }
@@ -467,10 +467,10 @@
       background: rgba(200, 160, 60, 0.25);
       border: 1px solid rgba(200, 160, 60, 0.5);
       color: #f0e6d3;
-      border-radius: 4px;
-      padding: 4px 10px;
+      border-radius: 5px;
+      padding: 6px 14px;
       cursor: pointer;
-      font-size: 12px;
+      font-size: 15px;
       font-weight: bold;
       transition: background 0.15s;
     }
@@ -536,8 +536,8 @@
     /* ── Tech Shop ── */
     #tech-shop-btn {
       background: rgba(200, 160, 60, 0.25); border: 1px solid rgba(200, 160, 60, 0.5);
-      color: #f0e6d3; border-radius: 4px; padding: 4px 10px; cursor: pointer;
-      font-size: 12px; font-weight: bold; transition: background 0.15s;
+      color: #f0e6d3; border-radius: 5px; padding: 6px 14px; cursor: pointer;
+      font-size: 15px; font-weight: bold; transition: background 0.15s;
     }
     #tech-shop-btn:hover { background: rgba(200, 160, 60, 0.45); }
     #tech-shop {
@@ -642,23 +642,23 @@
     .craft-btn.disabled:hover { background: rgba(100,140,180,0.15); }
     .craft-btn .build-name { font-weight: bold; }
     .craft-btn .build-cost { font-size: 10px; opacity: 0.7; }
-    .upgrade-bs-btn {
+    .upgrade-bs-btn, .upgrade-bld-btn {
       background: rgba(200,120,40,0.2); border: 1px solid rgba(200,120,40,0.4);
       color: #f0e6d3; border-radius: 4px; padding: 5px 8px; cursor: pointer;
       font-size: 12px; margin: 5px 0; width: 100%; text-align: center; font-weight: bold;
       transition: background 0.1s;
     }
-    .upgrade-bs-btn:hover { background: rgba(200,120,40,0.4); }
-    .upgrade-bs-btn.disabled { opacity: 0.4; cursor: not-allowed; }
+    .upgrade-bs-btn:hover, .upgrade-bld-btn:hover { background: rgba(200,120,40,0.4); }
+    .upgrade-bs-btn.disabled, .upgrade-bld-btn.disabled { opacity: 0.4; cursor: not-allowed; }
 
     /* ── Relics Bar ── */
     #relics-bar {
-      position: absolute; top: 56px; left: 50%; transform: translateX(-50%);
-      display: flex; gap: 4px; font-size: 10px;
+      position: absolute; top: 70px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 6px; font-size: 13px;
     }
     .relic-badge {
       background: rgba(160,60,200,0.2); border: 1px solid rgba(160,60,200,0.4);
-      border-radius: 4px; padding: 2px 6px; color: #c090e0; cursor: default;
+      border-radius: 5px; padding: 3px 8px; color: #c090e0; cursor: default;
     }
 
     /* ── Battle Controls ── */

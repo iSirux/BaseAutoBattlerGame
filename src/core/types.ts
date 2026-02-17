@@ -85,7 +85,7 @@ export interface UnitStats {
   hp: number;
   maxHp: number;
   attack: number;
-  speed: number;
+  cooldown: number;
 }
 
 export interface UnitDef {
@@ -109,6 +109,7 @@ export interface Unit {
   id: string;
   defId: string;
   stats: UnitStats;
+  cooldownTimer: number;
   lives: number;
   maxLives: number;
   equipment: Partial<Record<EquipmentSlot, EquipmentDef>>;
@@ -118,10 +119,10 @@ export interface Unit {
 
 export interface BattleState {
   frontline: (Unit | null)[];
-  ranged: Unit[];
+  ranged: (Unit | null)[];
   reinforcementQueue: Unit[];
   enemyFrontline: (Unit | null)[];
-  enemyRanged: Unit[];
+  enemyRanged: (Unit | null)[];
   battleWidth: number;
   tick: number;
   result: BattleResult | null;

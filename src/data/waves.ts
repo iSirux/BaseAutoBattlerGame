@@ -3,7 +3,7 @@ import type { WaveDef, WaveModifier } from '@/core/types';
 const WAVE_MODIFIERS: WaveModifier[] = [
   { name: 'Hardened', description: 'Enemies have +5 HP', statChanges: { maxHp: 5, hp: 5 } },
   { name: 'Enraged', description: 'Enemies have +3 ATK', statChanges: { attack: 3 } },
-  { name: 'Swift', description: 'Enemies have +2 SPD', statChanges: { speed: 2 } },
+  { name: 'Swift', description: 'Enemies attack 0.3s faster', statChanges: { cooldown: -0.3 } },
   { name: 'Ironclad', description: 'Enemies have +10 HP', statChanges: { maxHp: 10, hp: 10 } },
   { name: 'Frenzied', description: 'Enemies have +5 ATK', statChanges: { attack: 5 } },
 ];
