@@ -10,9 +10,10 @@ import {
   craftEquipment, equipItem, unequipItem, getCraftableEquipment,
   upgradeBlacksmith, getBlacksmithUpgradeCost,
   purchaseTech, selectCard, generateCardChoices,
-  TIER_ORDER,
+  TIER_ORDER, getBuildingProductionRate,
 } from '@/core/gameState';
-import { UNIT_DEFS } from '@/data/units';
+import { countAdjacentDeposits } from '@/hex/grid';
+import { UNIT_DEFS, ENEMY_DEFS } from '@/data/units';
 import { RELICS } from '@/data/relics';
 import { SFX } from '@/audio/sfx';
 
@@ -157,6 +158,12 @@ export class HUD {
     this.setText('res-stone', String(state.resources.stone));
     this.setText('res-iron', String(state.resources.iron));
     this.setText('res-bp', String(state.bp));
+
+    // Show per-tick income
+    const income = this.calcIncome(state);
+    this.setText('res-income-wood', `(+${income.wood})`);
+    this.setText('res-income-stone', `(+${income.stone})`);
+    this.setText('res-income-iron', `(+${income.iron})`);
 
     this.setDelta('res-delta-wood', state.resources.wood - this.lastResources.wood);
     this.setDelta('res-delta-stone', state.resources.stone - this.lastResources.stone);
@@ -567,17 +574,24 @@ export class HUD {
     const content = document.getElementById('hex-info-content')!;
     const sel = input.selectedHex;
 
+    // If showing enemy detail, keep it until a valid hex tile is selected
+    const showingEnemy = this.lastSelectedKey?.startsWith('enemy:');
+
     if (!sel) {
-      panel.classList.remove('visible');
-      this.lastSelectedKey = null;
+      if (!showingEnemy) {
+        panel.classList.remove('visible');
+        this.lastSelectedKey = null;
+      }
       return;
     }
 
     const key = hexKey(sel);
     const tile = state.grid.tiles.get(key);
     if (!tile) {
-      panel.classList.remove('visible');
-      this.lastSelectedKey = null;
+      if (!showingEnemy) {
+        panel.classList.remove('visible');
+        this.lastSelectedKey = null;
+      }
       return;
     }
 
@@ -587,6 +601,53 @@ export class HUD {
     this.lastSelectedKey = key;
 
     this.rebuildSelectionContent(content, tile, sel, state);
+  }
+
+  /** Show enemy info in the selection panel (same panel as buildings/units) */
+  showEnemyDetail(defId: string): void {
+    const panel = document.getElementById('hex-info')!;
+    const content = document.getElementById('hex-info-content')!;
+    const def = ENEMY_DEFS[defId];
+    if (!def) return;
+
+    const isBoss = ['goblin_king', 'orc_warlord', 'troll_chieftain'].includes(defId);
+
+    let html = '';
+    if (this.isMobile) {
+      html += `<button id="hex-info-close" style="
+        position:absolute; top:8px; right:10px;
+        background:none; border:none; color:#e0d8c0;
+        font-size:22px; cursor:pointer; line-height:1; padding:2px 6px;
+      ">&times;</button>`;
+    }
+    html += `<div class="info-header">${def.name}</div>`;
+    if (isBoss) {
+      html += `<div class="info-row" style="color:#ccaa44;font-size:11px;">Boss</div>`;
+    }
+
+    html += `<div class="info-section">`;
+    html += `<div class="info-row"><b>Role:</b> ${this.capitalize(def.role)}</div>`;
+    html += `<div class="info-row"><b>HP:</b> ${def.baseStats.maxHp}</div>`;
+    html += `<div class="info-row"><b>ATK:</b> ${def.baseStats.attack}</div>`;
+    html += `<div class="info-row"><b>SPD:</b> ${def.baseStats.speed}</div>`;
+    html += `<div class="info-row"><b>Lives:</b> ${def.baseLives}</div>`;
+    html += `</div>`;
+
+    content.innerHTML = html;
+    panel.classList.add('visible');
+    this.lastSelectedKey = `enemy:${defId}`;
+
+    // Mobile close button
+    document.getElementById('hex-info-close')?.addEventListener('click', () => {
+      panel.classList.remove('visible');
+      this.lastSelectedKey = null;
+    });
+  }
+
+  /** Hide the selection panel */
+  hideSelectionPanel(): void {
+    document.getElementById('hex-info')?.classList.remove('visible');
+    this.lastSelectedKey = null;
   }
 
   /** Show the battle results overlay */
@@ -667,8 +728,13 @@ export class HUD {
         html += `<div class="info-section">`;
         html += `<div class="info-row"><b>${def.name}</b></div>`;
         if (def.produces) {
-          const rate = Math.floor(def.productionRate * state.gatherRateMultiplier);
+          const rate = getBuildingProductionRate(state, building);
+          const adjacentCount = countAdjacentDeposits(state.grid, building.coord, def.produces);
           html += `<div class="info-row">Produces: +${rate} ${def.produces}/phase</div>`;
+          if (adjacentCount > 1) {
+            const bonusPct = (adjacentCount - 1) * 50;
+            html += `<div class="info-row" style="font-size:10px;color:#7ab0d4;">Adjacency: ${adjacentCount} deposits (+${bonusPct}%)</div>`;
+          }
         }
         html += `</div>`;
 
@@ -905,7 +971,16 @@ export class HUD {
       const building = state.buildings.get(tile.buildingId);
       if (building) {
         const def = BUILDING_DEFS[building.type];
-        text += ` [${def.name}]`;
+        text += ` [${def.name}`;
+        if (def.produces) {
+          const rate = getBuildingProductionRate(state, building);
+          text += ` +${rate}/${def.produces}`;
+          const adjacentCount = countAdjacentDeposits(state.grid, building.coord, def.produces);
+          if (adjacentCount > 1) {
+            text += ` (${adjacentCount} deposits)`;
+          }
+        }
+        text += `]`;
       }
     }
     return text;
@@ -950,6 +1025,17 @@ export class HUD {
 
   private capitalize(s: string): string {
     return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  private calcIncome(state: GameState): Resources {
+    const income: Resources = { wood: 0, stone: 0, iron: 0 };
+    for (const building of state.buildings.values()) {
+      const def = BUILDING_DEFS[building.type];
+      if (def.produces) {
+        income[def.produces] += getBuildingProductionRate(state, building);
+      }
+    }
+    return income;
   }
 
   private setText(id: string, text: string): void {

@@ -288,4 +288,7 @@ export interface GameState {
   /** Cumulative stat bonuses applied to new units */
   techStatBonuses: Partial<UnitStats>;
   techLivesBonus: number;
+
+  /** Upcoming wave definition (for wave preview) */
+  currentWaveDef: WaveDef | null;
 }

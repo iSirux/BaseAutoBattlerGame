@@ -1,9 +1,13 @@
-import { Application, Container, Graphics } from 'pixi.js';
+import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
 import type { GameState, HexTile, InputState, HexCoord } from '@/core/types';
 import { hexToPixel, hexCorners, pixelToHex, hexKey, hexNeighbors } from '@/hex/coords';
 import { BUILDING_DEFS } from '@/data/buildings';
+import { getBuildingProductionRate } from '@/core/gameState';
+import { countAdjacentDeposits } from '@/hex/grid';
+import { ArenaRenderer } from './arena';
 
 const HEX_SIZE = 32;
+const ARENA_WORLD_Y = -700;
 
 const TERRAIN_COLORS: Record<string, number> = {
   grass: 0x4a7c4f,
@@ -17,6 +21,14 @@ const DEPOSIT_COLORS: Record<string, number> = {
   stone: 0x9e9e9e,
   iron: 0x6e7b8b,
 };
+
+const PRODUCTION_TEXT_STYLE = new TextStyle({
+  fontFamily: 'monospace',
+  fontSize: 11,
+  fontWeight: 'bold',
+  fill: 0xffffff,
+  stroke: { color: 0x000000, width: 3 },
+});
 
 const BUILDING_COLORS: Record<string, number> = {
   lumber_mill: 0xc49a3c,
@@ -34,6 +46,8 @@ export class GameRenderer {
   gridLayer: Container;
   buildingLayer: Container;
   highlightLayer: Container;
+  arenaLayer: Container;
+  arena: ArenaRenderer;
 
   inputState: InputState;
 
@@ -46,10 +60,12 @@ export class GameRenderer {
   private pinchStartScale = 1;
   private isPinching = false;
   private isTouchDevice = false;
+  private panAnimationId: number | null = null;
 
   private hoverGfx: Graphics;
   private selectGfx: Graphics;
   private validPlacementGfx: Graphics;
+  private placementLabels: Container;
 
   /** Callback when a placement click occurs */
   onPlacementClick: ((coord: HexCoord) => void) | null = null;
@@ -60,10 +76,16 @@ export class GameRenderer {
     this.gridLayer = new Container();
     this.buildingLayer = new Container();
     this.highlightLayer = new Container();
+    this.arenaLayer = new Container();
+    this.arenaLayer.y = ARENA_WORLD_Y;
+
+    this.arena = new ArenaRenderer();
+    this.arenaLayer.addChild(this.arena.container);
 
     this.hoverGfx = new Graphics();
     this.selectGfx = new Graphics();
     this.validPlacementGfx = new Graphics();
+    this.placementLabels = new Container();
 
     this.inputState = {
       hoveredHex: null,
@@ -83,10 +105,12 @@ export class GameRenderer {
     });
     canvasContainer.appendChild(this.app.canvas);
 
+    this.worldContainer.addChild(this.arenaLayer);
     this.worldContainer.addChild(this.gridLayer);
     this.worldContainer.addChild(this.buildingLayer);
     this.worldContainer.addChild(this.highlightLayer);
     this.highlightLayer.addChild(this.validPlacementGfx);
+    this.highlightLayer.addChild(this.placementLabels);
     this.highlightLayer.addChild(this.hoverGfx);
     this.highlightLayer.addChild(this.selectGfx);
     this.app.stage.addChild(this.worldContainer);
@@ -298,13 +322,16 @@ export class GameRenderer {
     this.hoverGfx.clear();
     this.selectGfx.clear();
     this.validPlacementGfx.clear();
+    this.placementLabels.removeChildren();
 
     const hovered = this.inputState.hoveredHex;
     const selected = this.inputState.selectedHex;
     const placing = this.inputState.placingBuilding;
 
-    // Placement mode: highlight valid tiles
+    // Placement mode: highlight valid tiles with pulsing effect
     if (placing) {
+      const pulse = 0.5 + 0.2 * Math.sin(performance.now() / 400);
+      const def = BUILDING_DEFS[placing];
       const validTiles = this.getValidPlacementTiles(state, placing);
       for (const key of validTiles) {
         const tile = state.grid.tiles.get(key);
@@ -312,8 +339,21 @@ export class GameRenderer {
         const center = hexToPixel(tile.coord, HEX_SIZE);
         const corners = hexCorners(center, HEX_SIZE - 1);
         this.validPlacementGfx.poly(corners.flatMap((c) => [c.x, c.y]));
-        this.validPlacementGfx.fill({ color: 0x40c040, alpha: 0.2 });
-        this.validPlacementGfx.stroke({ color: 0x40c040, width: 1.5, alpha: 0.5 });
+        this.validPlacementGfx.fill({ color: 0x40ff40, alpha: 0.15 + pulse * 0.1 });
+        this.validPlacementGfx.stroke({ color: 0x40ff40, width: 2, alpha: pulse });
+
+        // Show projected production rate for resource buildings
+        if (def?.produces) {
+          const adjacentCount = countAdjacentDeposits(state.grid, tile.coord, def.produces);
+          const extraDeposits = Math.max(0, adjacentCount - 1);
+          const adjacencyMultiplier = 1 + extraDeposits * 0.5;
+          const rate = Math.floor(def.productionRate * adjacencyMultiplier * state.gatherRateMultiplier);
+          const label = new Text({ text: `+${rate}`, style: PRODUCTION_TEXT_STYLE });
+          label.anchor.set(0.5, 0.5);
+          label.x = center.x;
+          label.y = center.y;
+          this.placementLabels.addChild(label);
+        }
       }
 
       // Hover in placement mode: green if valid, red if not
@@ -396,10 +436,71 @@ export class GameRenderer {
         gfx.circle(center.x, center.y, HEX_SIZE * 0.4);
         gfx.fill({ color: bColor });
         gfx.stroke({ color: 0x000000, width: 1 });
+
+        // Show production rate on resource buildings
+        const def = BUILDING_DEFS[building.type];
+        if (def.produces) {
+          const rate = getBuildingProductionRate(state, building);
+          const label = new Text({ text: `+${rate}`, style: PRODUCTION_TEXT_STYLE });
+          label.anchor.set(0.5, 0);
+          label.x = center.x;
+          label.y = center.y + HEX_SIZE * 0.2;
+          this.gridLayer.addChild(label);
+        }
       }
     }
 
     this.gridLayer.addChild(gfx);
+  }
+
+  /** Smoothly pan camera to show the arena area */
+  panToArena(): Promise<void> {
+    const scale = this.worldContainer.scale.x;
+    const targetX = this.app.screen.width / 2;
+    // Center on the middle of the arena (ARENA_WORLD_Y + 70 = midpoint of battle)
+    const arenaCenter = ARENA_WORLD_Y + 70;
+    const targetY = this.app.screen.height / 2 - arenaCenter * scale;
+    return this.animatePan(targetX, targetY);
+  }
+
+  /** Smoothly pan camera back to the hex grid (base) */
+  panToBase(): Promise<void> {
+    const targetX = this.app.screen.width / 2;
+    const targetY = this.app.screen.height / 2;
+    return this.animatePan(targetX, targetY);
+  }
+
+  private animatePan(targetX: number, targetY: number): Promise<void> {
+    if (this.panAnimationId !== null) {
+      cancelAnimationFrame(this.panAnimationId);
+      this.panAnimationId = null;
+    }
+
+    return new Promise(resolve => {
+      const startX = this.worldContainer.x;
+      const startY = this.worldContainer.y;
+      const duration = 500;
+      const startTime = performance.now();
+
+      const animate = () => {
+        const elapsed = performance.now() - startTime;
+        const t = Math.min(1, elapsed / duration);
+        // Ease out cubic
+        const ease = 1 - Math.pow(1 - t, 3);
+
+        this.worldContainer.x = startX + (targetX - startX) * ease;
+        this.worldContainer.y = startY + (targetY - startY) * ease;
+
+        if (t < 1) {
+          this.panAnimationId = requestAnimationFrame(animate);
+        } else {
+          this.panAnimationId = null;
+          resolve();
+        }
+      };
+
+      this.panAnimationId = requestAnimationFrame(animate);
+    });
   }
 
   get hexSize(): number {

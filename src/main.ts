@@ -1,6 +1,8 @@
-import { createGameState, tickResources, placeBuilding, startBattle, advanceToBuild } from '@/core/gameState';
+import { createGameState, tickResources, placeBuilding, prepareBattle, finalizeBattle, advanceToBuild, setPhase } from '@/core/gameState';
 import { gameEvents } from '@/core/events';
 import { GameRenderer } from '@/render/renderer';
+import { BattlePlayback } from '@/render/battlePlayback';
+import { BattleControls } from '@/ui/battleControls';
 import { HUD } from '@/ui/hud';
 import { STARTER_KITS } from '@/data/starters';
 import { SFX } from '@/audio/sfx';
@@ -32,6 +34,14 @@ async function main() {
     renderer.renderGrid(state);
   });
 
+  // Battle Controls
+  const battleControls = new BattleControls();
+
+  // Enemy click → show in selection panel
+  renderer.arena.onEnemyClick = (defId) => {
+    hud.showEnemyDetail(defId);
+  };
+
   // Placement mode: click on hex to place the selected building
   renderer.onPlacementClick = (coord) => {
     const buildingType = renderer.inputState.placingBuilding;
@@ -48,6 +58,11 @@ async function main() {
   renderer.renderGrid(state);
   hud.update(state);
 
+  // Show initial wave preview
+  if (state.currentWaveDef) {
+    renderer.arena.showWavePreview(state.currentWaveDef);
+  }
+
   // Grant flat resource income once when entering build phase
   tickResources(state);
   gameEvents.on('phase:changed', ({ to }) => {
@@ -63,27 +78,67 @@ async function main() {
     hud.showTechShop(state);
   });
 
-  // Ready button: start the battle
-  document.getElementById('ready-btn')!.addEventListener('click', () => {
-    if (state.phase !== 'build') return;
+  // Track if battle is in progress to prevent double-clicks
+  let battleInProgress = false;
+
+  // Ready button: start the battle (async flow)
+  document.getElementById('ready-btn')!.addEventListener('click', async () => {
+    if (state.phase !== 'build' || battleInProgress) return;
+    battleInProgress = true;
     SFX.click();
 
     const rosterSizeBefore = state.roster.size;
-    const result = startBattle(state);
+
+    // 1. Switch to battle phase (hides build UI)
+    setPhase(state, 'battle');
+    hud.update(state);
+
+    // 2. Prepare battle (instant, produces log)
+    const { battleState, log, result } = prepareBattle(state);
+
+    // 3. Clear wave preview, close panels
+    hud.hideSelectionPanel();
+    renderer.inputState.selectedHex = null;
+    document.getElementById('roster-panel')?.classList.remove('visible');
+
+    // 3. Pan camera to arena
+    await renderer.panToArena();
+
+    // 4. Play back the battle
+    const playback = new BattlePlayback(log, renderer.arena);
+    battleControls.bind(playback);
+    battleControls.show();
+
+    await playback.play();
+
+    battleControls.hide();
+
+    // 5. Finalize battle (mutate state)
+    finalizeBattle(state, result, battleState);
     const unitsLost = rosterSizeBefore - state.roster.size;
 
     renderer.renderGrid(state);
     hud.update(state);
 
-    // Battle results → Card selection → Advance to build
+    // 6. Show battle results modal -> card selection -> advanceToBuild
     hud.showBattleResults(result, unitsLost, () => {
-      if (state.phase === 'game_over') return;
+      if (state.phase === 'game_over') {
+        battleInProgress = false;
+        return;
+      }
 
       // Show card selection
-      hud.showCardSelection(state, () => {
+      hud.showCardSelection(state, async () => {
         advanceToBuild(state);
         renderer.renderGrid(state);
         hud.update(state);
+
+        // 7. Show new wave preview, pan back to base
+        if (state.currentWaveDef) {
+          renderer.arena.showWavePreview(state.currentWaveDef);
+        }
+        await renderer.panToBase();
+        battleInProgress = false;
       });
     });
   });

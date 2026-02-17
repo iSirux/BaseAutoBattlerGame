@@ -87,6 +87,18 @@ export function hasAdjacentDeposit(
   });
 }
 
+/** Count how many adjacent tiles have a deposit of the given type */
+export function countAdjacentDeposits(
+  grid: HexGrid,
+  coord: HexCoord,
+  depositType: DepositType,
+): number {
+  return hexNeighbors(coord).filter((n) => {
+    const tile = grid.tiles.get(hexKey(n));
+    return tile?.deposit === depositType;
+  }).length;
+}
+
 /** Get a tile from the grid */
 export function getTile(grid: HexGrid, coord: HexCoord): HexTile | undefined {
   return grid.tiles.get(hexKey(coord));

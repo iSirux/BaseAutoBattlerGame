@@ -75,6 +75,12 @@
       border-radius: 3px;
       display: inline-block;
     }
+    .res-income {
+      font-size: 10px;
+      color: #a0c8ff;
+      opacity: 0.7;
+      margin-left: 2px;
+    }
     .res-delta {
       font-size: 10px;
       opacity: 0.7;
@@ -631,6 +637,45 @@
       border-radius: 4px; padding: 2px 6px; color: #c090e0; cursor: default;
     }
 
+    /* ── Battle Controls ── */
+    #battle-controls {
+      display: none;
+      position: absolute;
+      bottom: 12px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(30, 20, 10, 0.9);
+      border: 1px solid rgba(200, 160, 60, 0.4);
+      border-radius: 8px;
+      padding: 6px 12px;
+      gap: 6px;
+      align-items: center;
+      z-index: 50;
+    }
+    #battle-controls.visible { display: flex; }
+    .speed-btn {
+      background: rgba(200, 160, 60, 0.15);
+      border: 1px solid rgba(200, 160, 60, 0.3);
+      color: #e0d8c0;
+      border-radius: 4px;
+      padding: 5px 12px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: bold;
+      transition: background 0.1s, border-color 0.15s;
+    }
+    .speed-btn:hover { background: rgba(200, 160, 60, 0.3); }
+    .speed-btn.active {
+      background: rgba(200, 160, 60, 0.4);
+      border-color: #c8a03c;
+      color: #f0e6d3;
+    }
+    #battle-tick-counter {
+      font-size: 11px;
+      color: rgba(240, 230, 211, 0.6);
+      min-width: 60px;
+      text-align: center;
+    }
+
     /* ── Mobile: <= 768px ── */
     @media (max-width: 768px) {
       #resource-bar {
@@ -704,6 +749,11 @@
       }
       #roster-toggle, #tech-shop-btn { padding: 4px 8px; font-size: 10px; min-height: 32px; }
       .reward-card { width: 120px; padding: 10px 8px; }
+      #battle-controls {
+        bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+        padding: 5px 8px;
+      }
+      .speed-btn { padding: 8px 14px; min-height: 36px; font-size: 13px; }
     }
 
     /* ── Small phones: <= 480px ── */
@@ -763,16 +813,19 @@
         <div class="resource-item" data-tip="Used for buildings, basic units, and training.">
           <span class="resource-icon" style="background:#c49a3c;"></span>
           <span>Wood: <span id="res-wood">0</span></span>
+          <span class="res-income" id="res-income-wood"></span>
           <span class="res-delta" id="res-delta-wood"></span>
         </div>
         <div class="resource-item" data-tip="Used for fortifications and advanced buildings.">
           <span class="resource-icon" style="background:#b0b0b0;"></span>
           <span>Stone: <span id="res-stone">0</span></span>
+          <span class="res-income" id="res-income-stone"></span>
           <span class="res-delta" id="res-delta-stone"></span>
         </div>
         <div class="resource-item" data-tip="Used for equipment crafting and elite units.">
           <span class="resource-icon" style="background:#7a8b9e;"></span>
           <span>Iron: <span id="res-iron">0</span></span>
+          <span class="res-income" id="res-income-iron"></span>
           <span class="res-delta" id="res-delta-iron"></span>
         </div>
         <div class="resource-item" data-tip="Battle Points. Earned from waves, spent on tech upgrades.">
@@ -845,6 +898,15 @@
           <div class="card-selection-title">Choose a Reward</div>
           <div class="card-choices" id="card-choices"></div>
         </div>
+      </div>
+
+      <!-- Battle Controls -->
+      <div id="battle-controls">
+        <button class="speed-btn" id="speed-1x">1x</button>
+        <button class="speed-btn" id="speed-2x">2x</button>
+        <button class="speed-btn" id="speed-4x">4x</button>
+        <button class="speed-btn" id="speed-skip">Skip</button>
+        <span id="battle-tick-counter"></span>
       </div>
 
       <!-- Debug Panel -->

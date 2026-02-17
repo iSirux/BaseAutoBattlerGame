@@ -1,7 +1,8 @@
-import type { BattleState, BattleResult, Unit, UnitDef } from '@/core/types';
+import type { BattleState, BattleResult, Unit } from '@/core/types';
 import { uid } from '@/core/utils';
 import { ENEMY_DEFS } from '@/data/units';
 import type { WaveDef } from '@/core/types';
+import type { BattleEventSink } from './battleLog';
 
 /** Create initial battle state from player roster and wave definition */
 export function createBattleState(
@@ -77,8 +78,26 @@ function canAttackThisTick(unit: Unit, tick: number): boolean {
   return tick % getAttackInterval(unit) === 0;
 }
 
+/** Find a melee target: prefer the opposing slot, then scan outward for nearest enemy */
+function findMeleeTarget(
+  enemyLine: (Unit | null)[],
+  slotIndex: number,
+  width: number,
+): Unit | null {
+  // Prefer direct opponent
+  if (enemyLine[slotIndex]) return enemyLine[slotIndex];
+  // Scan outward from slot (left-right alternating)
+  for (let offset = 1; offset < width; offset++) {
+    const left = slotIndex - offset;
+    const right = slotIndex + offset;
+    if (left >= 0 && enemyLine[left]) return enemyLine[left];
+    if (right < width && enemyLine[right]) return enemyLine[right];
+  }
+  return null;
+}
+
 /** Advance the battle by one tick. Returns true if battle is still ongoing. */
-export function battleTick(state: BattleState): boolean {
+export function battleTick(state: BattleState, sink?: BattleEventSink): boolean {
   if (state.result) return false;
   state.tick++;
 
@@ -87,14 +106,27 @@ export function battleTick(state: BattleState): boolean {
   // ── Combat: units attack based on their speed stat ──
 
   // Player frontline attacks enemy frontline
+  // Units prefer the enemy in their slot; if empty, retarget to nearest enemy
   for (let i = 0; i < state.battleWidth; i++) {
     const attacker = state.frontline[i];
-    const defender = state.enemyFrontline[i];
-    if (attacker && defender && canAttackThisTick(attacker, state.tick)) {
-      applyDamage(defender, attacker.stats.attack);
+    if (attacker && canAttackThisTick(attacker, state.tick)) {
+      const target = findMeleeTarget(state.enemyFrontline, i, state.battleWidth);
+      if (target) {
+        applyDamage(target, attacker.stats.attack);
+        sink?.({ type: 'melee_attack', attackerId: attacker.id, targetId: target.id, damage: attacker.stats.attack, targetHp: target.stats.hp, attackerSide: 'player' });
+      }
     }
-    if (defender && attacker && canAttackThisTick(defender, state.tick)) {
-      applyDamage(attacker, defender.stats.attack);
+  }
+
+  // Enemy frontline attacks player frontline
+  for (let i = 0; i < state.battleWidth; i++) {
+    const attacker = state.enemyFrontline[i];
+    if (attacker && canAttackThisTick(attacker, state.tick)) {
+      const target = findMeleeTarget(state.frontline, i, state.battleWidth);
+      if (target) {
+        applyDamage(target, attacker.stats.attack);
+        sink?.({ type: 'melee_attack', attackerId: attacker.id, targetId: target.id, damage: attacker.stats.attack, targetHp: target.stats.hp, attackerSide: 'enemy' });
+      }
     }
   }
 
@@ -105,6 +137,7 @@ export function battleTick(state: BattleState): boolean {
     if (targets.length > 0) {
       const target = targets[state.tick % targets.length];
       applyDamage(target, archer.stats.attack);
+      sink?.({ type: 'ranged_attack', attackerId: archer.id, targetId: target.id, damage: archer.stats.attack, targetHp: target.stats.hp, attackerSide: 'player' });
     }
   }
 
@@ -115,6 +148,7 @@ export function battleTick(state: BattleState): boolean {
     if (targets.length > 0) {
       const target = targets[state.tick % targets.length];
       applyDamage(target, archer.stats.attack);
+      sink?.({ type: 'ranged_attack', attackerId: archer.id, targetId: target.id, damage: archer.stats.attack, targetHp: target.stats.hp, attackerSide: 'enemy' });
     }
   }
 
@@ -125,32 +159,63 @@ export function battleTick(state: BattleState): boolean {
     const unit = state.frontline[i];
     if (unit && unit.stats.hp <= 0) {
       unit.lives--;
+      sink?.({ type: 'unit_died', unitId: unit.id, side: 'player', slotIndex: i, livesRemaining: unit.lives });
       state.frontline[i] = null;
     }
   }
+
+  // Track slots before fill to detect reinforcements
+  const playerSlotsBefore = state.frontline.map(u => u?.id ?? null);
   fillFrontline(state.frontline, state.reinforcementQueue, state.battleWidth);
+  if (sink) {
+    for (let i = 0; i < state.battleWidth; i++) {
+      const unit = state.frontline[i];
+      if (unit && playerSlotsBefore[i] === null) {
+        sink({ type: 'reinforcement', unitId: unit.id, side: 'player', slotIndex: i });
+      }
+    }
+  }
 
   // Enemy side
   for (let i = 0; i < state.battleWidth; i++) {
     const unit = state.enemyFrontline[i];
     if (unit && unit.stats.hp <= 0) {
+      sink?.({ type: 'unit_died', unitId: unit.id, side: 'enemy', slotIndex: i, livesRemaining: 0 });
       state.enemyFrontline[i] = null;
     }
   }
+
+  const enemySlotsBefore = state.enemyFrontline.map(u => u?.id ?? null);
   fillFrontline(
     state.enemyFrontline,
     extState._enemyReinforcements ?? [],
     state.battleWidth,
   );
+  if (sink) {
+    for (let i = 0; i < state.battleWidth; i++) {
+      const unit = state.enemyFrontline[i];
+      if (unit && enemySlotsBefore[i] === null) {
+        sink({ type: 'reinforcement', unitId: unit.id, side: 'enemy', slotIndex: i });
+      }
+    }
+  }
 
   // Remove dead ranged units
+  if (sink) {
+    for (const u of state.ranged) {
+      if (u.stats.hp <= 0) sink({ type: 'unit_died', unitId: u.id, side: 'player', slotIndex: -1, livesRemaining: u.lives - 1 });
+    }
+    for (const u of state.enemyRanged) {
+      if (u.stats.hp <= 0) sink({ type: 'unit_died', unitId: u.id, side: 'enemy', slotIndex: -1, livesRemaining: 0 });
+    }
+  }
   state.ranged = state.ranged.filter((u) => u.stats.hp > 0);
   state.enemyRanged = state.enemyRanged.filter((u) => u.stats.hp > 0);
 
   // If no player frontline and ranged are exposed, enemies hit ranged
   const playerFrontAlive = state.frontline.some((u) => u !== null);
   if (!playerFrontAlive && state.ranged.length > 0) {
-    // Ranged units become the frontline (exposed)
+    sink?.({ type: 'ranged_exposed', side: 'player' });
     for (let i = 0; i < Math.min(state.ranged.length, state.battleWidth); i++) {
       state.frontline[i] = state.ranged[i];
     }
@@ -159,6 +224,7 @@ export function battleTick(state: BattleState): boolean {
 
   const enemyFrontAlive = state.enemyFrontline.some((u) => u !== null);
   if (!enemyFrontAlive && state.enemyRanged.length > 0) {
+    sink?.({ type: 'ranged_exposed', side: 'enemy' });
     for (let i = 0; i < Math.min(state.enemyRanged.length, state.battleWidth); i++) {
       state.enemyFrontline[i] = state.enemyRanged[i];
     }
@@ -194,6 +260,7 @@ export function battleTick(state: BattleState): boolean {
       survivingAllies,
       bpEarned: 0, // Calculated externally
     };
+    sink?.({ type: 'battle_end', winner });
     return false;
   }
 

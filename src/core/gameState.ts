@@ -1,7 +1,7 @@
-import type { GameState, GamePhase, Resources, Unit, Building, HexCoord, BattleResult, EquipmentDef, EquipmentTier, EquipmentSlot, Card, CardRarity, CardType, UnitStats, TechEffect } from './types';
+import type { GameState, GamePhase, Resources, Unit, Building, HexCoord, BattleState, BattleResult, EquipmentDef, EquipmentTier, EquipmentSlot, Card, CardRarity, CardType, UnitStats, TechEffect } from './types';
 import { uid } from './utils';
 import { gameEvents } from './events';
-import { generateGrid, hasAdjacentDeposit } from '@/hex/grid';
+import { generateGrid, hasAdjacentDeposit, countAdjacentDeposits } from '@/hex/grid';
 import { hex, hexKey } from '@/hex/coords';
 import { BUILDING_DEFS } from '@/data/buildings';
 import { UNIT_DEFS } from '@/data/units';
@@ -9,7 +9,9 @@ import { EQUIPMENT_DEFS } from '@/data/equipment';
 import { TECH_UPGRADES } from '@/data/tech';
 import { RELICS } from '@/data/relics';
 import { generateWave, calculateBP } from '@/data/waves';
-import { createBattleState, runBattle } from '@/simulation/battle';
+import { createBattleState } from '@/simulation/battle';
+import { recordBattle } from '@/simulation/battleLog';
+import type { BattleLog } from '@/simulation/battleLog';
 import type { StarterKit } from './types';
 
 const INITIAL_BASE_HP = 100;
@@ -49,6 +51,7 @@ export function createGameState(seed: number, starterKit: StarterKit): GameState
     extraCardChoices: 0,
     techStatBonuses: {},
     techLivesBonus: 0,
+    currentWaveDef: null,
   };
 
   // Create starting unit
@@ -71,6 +74,9 @@ export function createGameState(seed: number, starterKit: StarterKit): GameState
 
   // Generate initial tech shop
   generateTechShop(state);
+
+  // Generate wave preview for first wave
+  state.currentWaveDef = generateWave(1);
 
   return state;
 }
@@ -167,12 +173,27 @@ export function placeBuilding(
   return building;
 }
 
+/** Bonus production per extra adjacent deposit (beyond the first) */
+const ADJACENCY_BONUS_PER_DEPOSIT = 0.5;
+
+/** Calculate the effective production rate for a resource building, including adjacency bonus */
+export function getBuildingProductionRate(state: GameState, building: Building): number {
+  const def = BUILDING_DEFS[building.type];
+  if (!def.produces) return 0;
+
+  const adjacentCount = countAdjacentDeposits(state.grid, building.coord, def.produces);
+  const extraDeposits = Math.max(0, adjacentCount - 1);
+  const adjacencyMultiplier = 1 + extraDeposits * ADJACENCY_BONUS_PER_DEPOSIT;
+
+  return Math.floor(def.productionRate * adjacencyMultiplier * state.gatherRateMultiplier);
+}
+
 /** Tick resource production from all resource buildings */
 export function tickResources(state: GameState): void {
   for (const building of state.buildings.values()) {
     const def = BUILDING_DEFS[building.type];
     if (def.produces) {
-      state.resources[def.produces] += Math.floor(def.productionRate * state.gatherRateMultiplier);
+      state.resources[def.produces] += getBuildingProductionRate(state, building);
     }
   }
 
@@ -240,8 +261,8 @@ export function trainUnit(state: GameState, defId: string): Unit | null {
   return unit;
 }
 
-/** Run a battle for the current wave. Returns the BattleResult. */
-export function startBattle(state: GameState): BattleResult {
+/** Prepare battle: resets HP, creates BattleState, records battle log. Does NOT mutate roster. */
+export function prepareBattle(state: GameState): { battleState: BattleState; log: BattleLog; result: BattleResult } {
   // Reset all roster units' HP to max before battle
   for (const unit of state.roster.values()) {
     unit.stats.hp = unit.stats.maxHp;
@@ -270,10 +291,17 @@ export function startBattle(state: GameState): BattleResult {
     if (unit) reinforcements.push(unit);
   }
 
-  const wave = generateWave(state.wave);
+  const wave = state.currentWaveDef ?? generateWave(state.wave);
   const battleState = createBattleState(melee, ranged, reinforcements, wave, effectiveBattleWidth);
-  const result = runBattle(battleState);
+  const { result, log } = recordBattle(battleState);
 
+  gameEvents.emit('battle:started', { totalTicks: log.totalTicks });
+
+  return { battleState, log, result };
+}
+
+/** Finalize battle: award BP, remove dead units, damage base, emit events. */
+export function finalizeBattle(state: GameState, result: BattleResult, battleState: BattleState): void {
   // Calculate and award BP
   const bp = calculateBP(state.wave, result.winner === 'player');
   result.bpEarned = bp;
@@ -309,7 +337,6 @@ export function startBattle(state: GameState): BattleResult {
 
   state.battle = battleState;
   gameEvents.emit('battle:ended', result);
-  return result;
 }
 
 /** Advance from battle/results back to the build phase */
@@ -317,6 +344,9 @@ export function advanceToBuild(state: GameState): void {
   state.wave++;
   state.battle = null;
   state.cardChoices = null;
+
+  // Generate wave preview for the next wave
+  state.currentWaveDef = generateWave(state.wave);
 
   // Reset tech shop every 5 waves
   if (state.wave % 5 === 1) {
