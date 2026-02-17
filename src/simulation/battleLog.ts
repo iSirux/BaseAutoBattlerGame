@@ -37,6 +37,7 @@ export interface ArenaSnapshot {
   enemyRanged: (ArenaUnit | null)[];
   enemyReinforcements: ArenaUnit[];
   battleWidth: number;
+  enemyBattleWidth: number;
 }
 
 export interface BattleLog {
@@ -74,6 +75,7 @@ function captureSnapshot(state: BattleState): ArenaSnapshot {
     enemyRanged: state.enemyRanged.map(u => u ? unitToArenaUnit(u, 'enemy') : null),
     enemyReinforcements: (extState._enemyReinforcements ?? []).map(u => unitToArenaUnit(u, 'enemy')),
     battleWidth: state.battleWidth,
+    enemyBattleWidth: state.enemyBattleWidth,
   };
 }
 

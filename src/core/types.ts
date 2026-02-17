@@ -124,6 +124,7 @@ export interface BattleState {
   enemyFrontline: (Unit | null)[];
   enemyRanged: (Unit | null)[];
   battleWidth: number;
+  enemyBattleWidth: number;
   tick: number;
   result: BattleResult | null;
 }

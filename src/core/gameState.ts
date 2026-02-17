@@ -377,7 +377,7 @@ export function prepareBattle(state: GameState): { battleState: BattleState; log
   }
 
   const wave = state.currentWaveDef ?? generateWave(state.wave);
-  const battleState = createBattleState(melee, ranged, reinforcements, wave, effectiveBattleWidth);
+  const battleState = createBattleState(melee, ranged, reinforcements, wave, effectiveBattleWidth, INITIAL_BATTLE_WIDTH);
   const { result, log } = recordBattle(battleState);
 
   gameEvents.emit('battle:started', { totalTicks: log.totalTicks });

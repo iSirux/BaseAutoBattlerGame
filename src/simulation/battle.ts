@@ -11,6 +11,7 @@ export function createBattleState(
   reinforcements: Unit[],
   wave: WaveDef,
   battleWidth: number,
+  enemyBattleWidth: number,
 ): BattleState {
   // Build enemy units from wave def
   const enemyMelee: Unit[] = [];
@@ -65,13 +66,13 @@ export function createBattleState(
     frontline[i] = playerFrontline[i];
   }
 
-  const enemyFrontline: (Unit | null)[] = new Array(battleWidth).fill(null);
-  for (let i = 0; i < Math.min(enemyMelee.length, battleWidth); i++) {
+  const enemyFrontline: (Unit | null)[] = new Array(enemyBattleWidth).fill(null);
+  for (let i = 0; i < Math.min(enemyMelee.length, enemyBattleWidth); i++) {
     enemyFrontline[i] = enemyMelee[i];
   }
 
   // Remaining enemy melee go to a virtual reinforcement queue
-  const enemyReinforcements = enemyMelee.slice(battleWidth);
+  const enemyReinforcements = enemyMelee.slice(enemyBattleWidth);
 
   // Fill ranged slots (same width as frontline)
   const rangedSlots: (Unit | null)[] = new Array(battleWidth).fill(null);
@@ -79,8 +80,8 @@ export function createBattleState(
     rangedSlots[i] = playerRanged[i];
   }
 
-  const enemyRangedSlots: (Unit | null)[] = new Array(battleWidth).fill(null);
-  for (let i = 0; i < Math.min(enemyRanged.length, battleWidth); i++) {
+  const enemyRangedSlots: (Unit | null)[] = new Array(enemyBattleWidth).fill(null);
+  for (let i = 0; i < Math.min(enemyRanged.length, enemyBattleWidth); i++) {
     enemyRangedSlots[i] = enemyRanged[i];
   }
 
@@ -94,6 +95,7 @@ export function createBattleState(
     enemyFrontline,
     enemyRanged: enemyRangedSlots,
     battleWidth,
+    enemyBattleWidth,
     tick: 0,
     result: null,
     _enemyReinforcements: enemyReinforcements,
@@ -145,7 +147,7 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
   for (let i = 0; i < state.battleWidth; i++) {
     const attacker = state.frontline[i];
     if (attacker && advanceCooldown(attacker)) {
-      const target = findMeleeTarget(state.enemyFrontline, i, state.battleWidth);
+      const target = findMeleeTarget(state.enemyFrontline, i, state.enemyBattleWidth);
       if (target) {
         applyDamage(target, attacker.stats.attack);
         sink?.({ type: 'melee_attack', attackerId: attacker.id, targetId: target.id, damage: attacker.stats.attack, targetHp: target.stats.hp, attackerSide: 'player' });
@@ -154,7 +156,7 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
   }
 
   // Enemy frontline attacks player frontline
-  for (let i = 0; i < state.battleWidth; i++) {
+  for (let i = 0; i < state.enemyBattleWidth; i++) {
     const attacker = state.enemyFrontline[i];
     if (attacker && advanceCooldown(attacker)) {
       const target = findMeleeTarget(state.frontline, i, state.battleWidth);
@@ -169,7 +171,7 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
   for (let i = 0; i < state.battleWidth; i++) {
     const archer = state.ranged[i];
     if (!archer || !advanceCooldown(archer)) continue;
-    const target = findMeleeTarget(state.enemyFrontline, i, state.battleWidth);
+    const target = findMeleeTarget(state.enemyFrontline, i, state.enemyBattleWidth);
     if (target) {
       applyDamage(target, archer.stats.attack);
       sink?.({ type: 'ranged_attack', attackerId: archer.id, targetId: target.id, damage: archer.stats.attack, targetHp: target.stats.hp, attackerSide: 'player' });
@@ -177,7 +179,7 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
   }
 
   // Enemy ranged attack player frontline (cooldown-gated, target closest to slot)
-  for (let i = 0; i < state.battleWidth; i++) {
+  for (let i = 0; i < state.enemyBattleWidth; i++) {
     const archer = state.enemyRanged[i];
     if (!archer || !advanceCooldown(archer)) continue;
     const target = findMeleeTarget(state.frontline, i, state.battleWidth);
@@ -216,7 +218,7 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
   }
 
   // Enemy side
-  for (let i = 0; i < state.battleWidth; i++) {
+  for (let i = 0; i < state.enemyBattleWidth; i++) {
     const unit = state.enemyFrontline[i];
     if (unit && unit.stats.hp <= 0) {
       unit.lives--;
@@ -233,10 +235,10 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
   fillFrontline(
     state.enemyFrontline,
     extState._enemyReinforcements ?? [],
-    state.battleWidth,
+    state.enemyBattleWidth,
   );
   if (sink) {
-    for (let i = 0; i < state.battleWidth; i++) {
+    for (let i = 0; i < state.enemyBattleWidth; i++) {
       const unit = state.enemyFrontline[i];
       if (unit && enemySlotsBefore[i] === null) {
         sink({ type: 'reinforcement', unitId: unit.id, side: 'enemy', slotIndex: i });
@@ -257,7 +259,7 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
       }
     }
   }
-  for (let i = 0; i < state.battleWidth; i++) {
+  for (let i = 0; i < state.enemyBattleWidth; i++) {
     const u = state.enemyRanged[i];
     if (u && u.stats.hp <= 0) {
       u.lives--;
@@ -287,7 +289,7 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
   const enemyRangedAlive = state.enemyRanged.some((u) => u !== null);
   if (!enemyFrontAlive && enemyRangedAlive) {
     sink?.({ type: 'ranged_exposed', side: 'enemy' });
-    for (let i = 0; i < state.battleWidth; i++) {
+    for (let i = 0; i < state.enemyBattleWidth; i++) {
       if (state.enemyRanged[i]) {
         state.enemyFrontline[i] = state.enemyRanged[i];
         state.enemyRanged[i] = null;
