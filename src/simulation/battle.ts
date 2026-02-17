@@ -36,6 +36,18 @@ export function createBattleState(
     }
   }
 
+  // Apply wave modifier to all enemies
+  if (wave.modifier) {
+    const allEnemies = [...enemyMelee, ...enemyRanged];
+    for (const unit of allEnemies) {
+      for (const [stat, value] of Object.entries(wave.modifier.statChanges)) {
+        if (value !== undefined && stat in unit.stats) {
+          (unit.stats as unknown as Record<string, number>)[stat] += value;
+        }
+      }
+    }
+  }
+
   // Fill frontline slots
   const frontline: (Unit | null)[] = new Array(battleWidth).fill(null);
   for (let i = 0; i < Math.min(playerFrontline.length, battleWidth); i++) {
@@ -160,7 +172,11 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
     if (unit && unit.stats.hp <= 0) {
       unit.lives--;
       sink?.({ type: 'unit_died', unitId: unit.id, side: 'player', slotIndex: i, livesRemaining: unit.lives });
-      state.frontline[i] = null;
+      if (unit.lives <= 0) {
+        state.frontline[i] = null;
+      } else {
+        unit.stats.hp = unit.stats.maxHp;
+      }
     }
   }
 
@@ -180,8 +196,13 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
   for (let i = 0; i < state.battleWidth; i++) {
     const unit = state.enemyFrontline[i];
     if (unit && unit.stats.hp <= 0) {
-      sink?.({ type: 'unit_died', unitId: unit.id, side: 'enemy', slotIndex: i, livesRemaining: 0 });
-      state.enemyFrontline[i] = null;
+      unit.lives--;
+      sink?.({ type: 'unit_died', unitId: unit.id, side: 'enemy', slotIndex: i, livesRemaining: unit.lives });
+      if (unit.lives <= 0) {
+        state.enemyFrontline[i] = null;
+      } else {
+        unit.stats.hp = unit.stats.maxHp;
+      }
     }
   }
 
@@ -200,17 +221,23 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
     }
   }
 
-  // Remove dead ranged units
-  if (sink) {
-    for (const u of state.ranged) {
-      if (u.stats.hp <= 0) sink({ type: 'unit_died', unitId: u.id, side: 'player', slotIndex: -1, livesRemaining: u.lives - 1 });
-    }
-    for (const u of state.enemyRanged) {
-      if (u.stats.hp <= 0) sink({ type: 'unit_died', unitId: u.id, side: 'enemy', slotIndex: -1, livesRemaining: 0 });
+  // Remove dead ranged units (handle multi-life)
+  for (const u of state.ranged) {
+    if (u.stats.hp <= 0) {
+      u.lives--;
+      sink?.({ type: 'unit_died', unitId: u.id, side: 'player', slotIndex: -1, livesRemaining: u.lives });
+      if (u.lives > 0) u.stats.hp = u.stats.maxHp;
     }
   }
-  state.ranged = state.ranged.filter((u) => u.stats.hp > 0);
-  state.enemyRanged = state.enemyRanged.filter((u) => u.stats.hp > 0);
+  for (const u of state.enemyRanged) {
+    if (u.stats.hp <= 0) {
+      u.lives--;
+      sink?.({ type: 'unit_died', unitId: u.id, side: 'enemy', slotIndex: -1, livesRemaining: u.lives });
+      if (u.lives > 0) u.stats.hp = u.stats.maxHp;
+    }
+  }
+  state.ranged = state.ranged.filter((u) => u.lives > 0);
+  state.enemyRanged = state.enemyRanged.filter((u) => u.lives > 0);
 
   // If no player frontline and ranged are exposed, enemies hit ranged
   const playerFrontAlive = state.frontline.some((u) => u !== null);

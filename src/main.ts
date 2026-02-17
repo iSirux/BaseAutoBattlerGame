@@ -7,9 +7,45 @@ import { HUD } from '@/ui/hud';
 import { STARTER_KITS } from '@/data/starters';
 import { SFX } from '@/audio/sfx';
 
+function showStarterSelection(): Promise<typeof STARTER_KITS[number]> {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('starter-select')!;
+    const choices = document.getElementById('starter-choices')!;
+    choices.innerHTML = '';
+
+    for (const kit of STARTER_KITS) {
+      const card = document.createElement('div');
+      card.className = 'starter-card';
+
+      const res = kit.startingResources;
+      const resParts: string[] = [];
+      if (res.wood) resParts.push(`${res.wood} Wood`);
+      if (res.stone) resParts.push(`${res.stone} Stone`);
+      if (res.iron) resParts.push(`${res.iron} Iron`);
+
+      card.innerHTML = `
+        <div class="starter-card-name">${kit.name}</div>
+        <div class="starter-card-desc">${kit.description}</div>
+        <div class="starter-card-details">
+          <span>Resources: ${resParts.join(', ')}</span>
+        </div>
+      `;
+
+      card.addEventListener('click', () => {
+        overlay.classList.remove('visible');
+        resolve(kit);
+      });
+
+      choices.appendChild(card);
+    }
+
+    overlay.classList.add('visible');
+  });
+}
+
 async function main() {
+  const starterKit = await showStarterSelection();
   const seed = Date.now();
-  const starterKit = STARTER_KITS[0];
   const state = createGameState(seed, starterKit);
 
   // Renderer
@@ -42,6 +78,11 @@ async function main() {
     hud.showEnemyDetail(defId);
   };
 
+  // Player unit click → show unit detail
+  renderer.arena.onPlayerUnitClick = (unitId) => {
+    hud.showPlayerUnitDetail(unitId, state);
+  };
+
   // Placement mode: click on hex to place the selected building
   renderer.onPlacementClick = (coord) => {
     const buildingType = renderer.inputState.placingBuilding;
@@ -60,8 +101,22 @@ async function main() {
 
   // Show initial wave preview
   if (state.currentWaveDef) {
-    renderer.arena.showWavePreview(state.currentWaveDef);
+    renderer.arena.showWavePreview(state.currentWaveDef, state);
   }
+
+  // Real-time refresh of wave preview when roster changes
+  gameEvents.on('roster:changed', () => {
+    if (state.phase === 'build' && state.currentWaveDef) {
+      renderer.arena.showWavePreview(state.currentWaveDef, state);
+    }
+  });
+
+  // Refresh preview when tech is purchased (may change battle width)
+  gameEvents.on('tech:purchased', () => {
+    if (state.phase === 'build' && state.currentWaveDef) {
+      renderer.arena.showWavePreview(state.currentWaveDef, state);
+    }
+  });
 
   // Grant flat resource income once when entering build phase
   tickResources(state);
@@ -135,7 +190,7 @@ async function main() {
 
         // 7. Show new wave preview, pan back to base
         if (state.currentWaveDef) {
-          renderer.arena.showWavePreview(state.currentWaveDef);
+          renderer.arena.showWavePreview(state.currentWaveDef, state);
         }
         await renderer.panToBase();
         battleInProgress = false;

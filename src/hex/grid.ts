@@ -35,6 +35,27 @@ export function generateGrid(radius: number, seed: number): HexGrid {
     }
   }
 
+  // Guarantee iron deposit within radius 3
+  const nearbyCoords = hexRange(hex(0, 0), 3);
+  const hasIron = nearbyCoords.some(c => {
+    const t = tiles.get(hexKey(c));
+    return t?.deposit === 'iron';
+  });
+  if (!hasIron) {
+    // Find a valid non-center tile to place iron
+    const candidates = allCoords.filter(c => {
+      const dist = hexDistance(c, hex(0, 0));
+      if (dist < 2 || dist > 3) return false;
+      const t = tiles.get(hexKey(c));
+      return t && !t.deposit;
+    });
+    if (candidates.length > 0) {
+      const target = candidates[Math.floor(rng() * candidates.length)];
+      const t = tiles.get(hexKey(target));
+      if (t) t.deposit = 'iron';
+    }
+  }
+
   return { tiles, radius };
 }
 

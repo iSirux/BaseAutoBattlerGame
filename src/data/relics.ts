@@ -34,6 +34,6 @@ export const RELICS: Relic[] = [
     name: 'Scavenger',
     description: 'Gain small resources after each battle.',
     rarity: 'common',
-    effect: { type: 'post_battle_resources', resources: { wood: 10, stone: 5, iron: 3 } },
+    effect: { type: 'post_battle_resources', resources: { wood: 3, stone: 2, iron: 1 } },
   },
 ];

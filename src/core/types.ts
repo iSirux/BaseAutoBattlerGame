@@ -38,7 +38,8 @@ export type BuildingType =
   | 'barracks'
   | 'archery_range'
   | 'blacksmith'
-  | 'kennel';
+  | 'kennel'
+  | 'guardhouse';
 
 export interface BuildingDef {
   type: BuildingType;
@@ -55,6 +56,7 @@ export interface Building {
   id: string;
   type: BuildingType;
   coord: HexCoord;
+  level: number;
 }
 
 // ── Equipment ──
@@ -97,8 +99,10 @@ export interface UnitDef {
   /** Whether this unit can equip armor */
   canEquipArmor: boolean;
   trainingCost: Partial<Resources>;
-  /** Which building type trains this unit */
-  trainedAt: BuildingType;
+  /** Which building type trains this unit (null = no building required) */
+  trainedAt: BuildingType | null;
+  /** Whether this is a boss unit */
+  isBoss?: boolean;
 }
 
 export interface Unit {
@@ -141,6 +145,15 @@ export interface WaveDef {
   isElite: boolean;
   /** Every 10th wave is a boss wave (boss enemy + entourage, guaranteed Relic) */
   isBoss: boolean;
+  /** Optional modifier applied to all enemies in this wave */
+  modifier?: WaveModifier;
+}
+
+export interface WaveModifier {
+  name: string;
+  description: string;
+  /** Flat stat changes applied to all enemies in the wave */
+  statChanges: Partial<UnitStats>;
 }
 
 // ── Tech / BP ──
@@ -152,7 +165,8 @@ export interface TechUpgrade {
   name: string;
   description: string;
   category: TechCategory;
-  cost: number; // BP cost
+  baseCost: number; // BP cost for tier 1
+  maxTier: number;
   /** Effect applied when purchased */
   effect: TechEffect;
 }
@@ -165,7 +179,8 @@ export type TechEffect =
   | { type: 'reserve_size'; value: number }
   | { type: 'unit_lives'; value: number }
   | { type: 'card_rarity_boost'; value: number }
-  | { type: 'extra_card_choice'; value: number };
+  | { type: 'extra_card_choice'; value: number }
+  | { type: 'expand_map' };
 
 // ── Cards / Rewards ──
 
@@ -255,8 +270,10 @@ export interface GameState {
   /** Units on the bench (not in battle or reinforcements) */
   bench: string[];
 
-  /** Purchased tech upgrades */
-  purchasedTech: Set<string>;
+  /** Building IDs that have already trained a unit this phase */
+  trainedThisPhase: Set<string>;
+  /** Purchased tech upgrades: tech ID → current tier (1-based) */
+  purchasedTech: Map<string, number>;
   /** Collected relics */
   activeRelics: string[];
 

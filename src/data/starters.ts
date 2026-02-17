@@ -4,10 +4,10 @@ export const STARTER_KITS: StarterKit[] = [
   {
     id: 'militia_kit',
     name: 'Militia Kit',
-    description: 'A swordsman with a barracks and basic supplies.',
-    unitDefId: 'swordsman',
+    description: 'A militia soldier with a barracks and basic supplies.',
+    unitDefId: 'militia',
     buildingType: 'barracks',
-    startingResources: { wood: 60, stone: 40, iron: 10 },
+    startingResources: { wood: 10, stone: 5, iron: 0 },
   },
   {
     id: 'frontier_kit',
@@ -15,7 +15,7 @@ export const STARTER_KITS: StarterKit[] = [
     description: 'An archer with an archery range and ranged supplies.',
     unitDefId: 'archer',
     buildingType: 'archery_range',
-    startingResources: { wood: 50, stone: 20, iron: 30 },
+    startingResources: { wood: 8, stone: 0, iron: 5 },
   },
   {
     id: 'beastmaster_kit',
@@ -23,6 +23,14 @@ export const STARTER_KITS: StarterKit[] = [
     description: 'A wolf companion with a kennel and wood stores.',
     unitDefId: 'wolf',
     buildingType: 'kennel',
-    startingResources: { wood: 80, stone: 30, iron: 0 },
+    startingResources: { wood: 12, stone: 0, iron: 0 },
+  },
+  {
+    id: 'defender_kit',
+    name: 'Defender Kit',
+    description: 'A sturdy guard with a guardhouse and stone reserves.',
+    unitDefId: 'guard',
+    buildingType: 'guardhouse',
+    startingResources: { wood: 5, stone: 10, iron: 0 },
   },
 ];

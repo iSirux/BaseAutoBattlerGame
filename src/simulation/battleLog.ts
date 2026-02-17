@@ -1,6 +1,6 @@
 import type { BattleState, BattleResult, Unit, UnitRole, UnitStats } from '@/core/types';
 import { battleTick } from './battle';
-import { UNIT_DEFS, ENEMY_DEFS } from '@/data/units';
+import { ALL_UNIT_DEFS, ENEMY_DEFS } from '@/data/units';
 
 // ── Battle Event Types ──
 
@@ -47,10 +47,8 @@ export interface BattleLog {
 
 // ── Snapshot Helpers ──
 
-const BOSS_DEF_IDS = new Set(['goblin_king', 'orc_warlord', 'troll_chieftain']);
-
 function unitToArenaUnit(unit: Unit, side: 'player' | 'enemy'): ArenaUnit {
-  const def = side === 'enemy' ? ENEMY_DEFS[unit.defId] : UNIT_DEFS[unit.defId];
+  const def = side === 'enemy' ? ENEMY_DEFS[unit.defId] : ALL_UNIT_DEFS[unit.defId];
   return {
     id: unit.id,
     defId: unit.defId,
@@ -61,7 +59,7 @@ function unitToArenaUnit(unit: Unit, side: 'player' | 'enemy'): ArenaUnit {
     maxHp: unit.stats.maxHp,
     lives: unit.lives,
     maxLives: unit.maxLives,
-    isBoss: BOSS_DEF_IDS.has(unit.defId),
+    isBoss: !!(side === 'enemy' && ENEMY_DEFS[unit.defId]?.isBoss),
   };
 }
 

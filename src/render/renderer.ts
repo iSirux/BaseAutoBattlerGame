@@ -7,7 +7,20 @@ import { countAdjacentDeposits } from '@/hex/grid';
 import { ArenaRenderer } from './arena';
 
 const HEX_SIZE = 32;
-const ARENA_WORLD_Y = -700;
+
+/** Place the arena to the right of the hex grid with a gap. */
+const ARENA_GAP = 40;
+/** Arena vertical center is at local y ≈ 90 (midpoint of -180..360 preview_full range) */
+const ARENA_VERTICAL_CENTER = 90;
+
+function computeArenaWorldX(gridRadius: number): number {
+  // Grid right edge: rightmost hex center x + hex horizontal extent
+  const gridRightX = HEX_SIZE * 1.5 * gridRadius + HEX_SIZE;
+  // Arena left edge in local coords is -halfW. We need to know halfW, but it depends on
+  // battleWidth. Use a conservative estimate (battleWidth=4 → halfW=260).
+  const arenaHalfW = 260;
+  return gridRightX + ARENA_GAP + arenaHalfW;
+}
 
 const TERRAIN_COLORS: Record<string, number> = {
   grass: 0x4a7c4f,
@@ -21,6 +34,8 @@ const DEPOSIT_COLORS: Record<string, number> = {
   stone: 0x9e9e9e,
   iron: 0x6e7b8b,
 };
+
+const TEXT_RESOLUTION = 3;
 
 const PRODUCTION_TEXT_STYLE = new TextStyle({
   fontFamily: 'monospace',
@@ -38,6 +53,7 @@ const BUILDING_COLORS: Record<string, number> = {
   archery_range: 0x6b8e23,
   blacksmith: 0x4a4a4a,
   kennel: 0x8b6c42,
+  guardhouse: 0x4a6a8b,
 };
 
 export class GameRenderer {
@@ -61,6 +77,7 @@ export class GameRenderer {
   private isPinching = false;
   private isTouchDevice = false;
   private panAnimationId: number | null = null;
+  private savedScale: number | null = null;
 
   private hoverGfx: Graphics;
   private selectGfx: Graphics;
@@ -77,7 +94,8 @@ export class GameRenderer {
     this.buildingLayer = new Container();
     this.highlightLayer = new Container();
     this.arenaLayer = new Container();
-    this.arenaLayer.y = ARENA_WORLD_Y;
+    this.arenaLayer.x = computeArenaWorldX(4); // default; updated by updateArenaPosition
+    this.arenaLayer.y = -ARENA_VERTICAL_CENTER; // center arena content vertically at world y=0
 
     this.arena = new ArenaRenderer();
     this.arenaLayer.addChild(this.arena.container);
@@ -308,9 +326,15 @@ export class GameRenderer {
     }
   }
 
+  /** Reposition the arena layer based on the current grid radius */
+  updateArenaPosition(gridRadius: number): void {
+    this.arenaLayer.x = computeArenaWorldX(gridRadius);
+  }
+
   /** Render the hex grid from game state */
   renderGrid(state: GameState): void {
     this.gridLayer.removeChildren();
+    this.updateArenaPosition(state.grid.radius);
 
     for (const tile of state.grid.tiles.values()) {
       this.drawHexTile(tile, state);
@@ -346,9 +370,9 @@ export class GameRenderer {
         if (def?.produces) {
           const adjacentCount = countAdjacentDeposits(state.grid, tile.coord, def.produces);
           const extraDeposits = Math.max(0, adjacentCount - 1);
-          const adjacencyMultiplier = 1 + extraDeposits * 0.5;
-          const rate = Math.floor(def.productionRate * adjacencyMultiplier * state.gatherRateMultiplier);
-          const label = new Text({ text: `+${rate}`, style: PRODUCTION_TEXT_STYLE });
+          const baseRate = def.productionRate + extraDeposits;
+          const rate = Math.floor(baseRate * state.gatherRateMultiplier);
+          const label = new Text({ text: `+${rate}`, style: PRODUCTION_TEXT_STYLE, resolution: TEXT_RESOLUTION });
           label.anchor.set(0.5, 0.5);
           label.x = center.x;
           label.y = center.y;
@@ -441,7 +465,7 @@ export class GameRenderer {
         const def = BUILDING_DEFS[building.type];
         if (def.produces) {
           const rate = getBuildingProductionRate(state, building);
-          const label = new Text({ text: `+${rate}`, style: PRODUCTION_TEXT_STYLE });
+          const label = new Text({ text: `+${rate}`, style: PRODUCTION_TEXT_STYLE, resolution: TEXT_RESOLUTION });
           label.anchor.set(0.5, 0);
           label.x = center.x;
           label.y = center.y + HEX_SIZE * 0.2;
@@ -453,24 +477,42 @@ export class GameRenderer {
     this.gridLayer.addChild(gfx);
   }
 
-  /** Smoothly pan camera to show the arena area */
+  /** Smoothly pan + zoom camera to fit the arena */
   panToArena(): Promise<void> {
-    const scale = this.worldContainer.scale.x;
-    const targetX = this.app.screen.width / 2;
-    // Center on the middle of the arena (ARENA_WORLD_Y + 70 = midpoint of battle)
-    const arenaCenter = ARENA_WORLD_Y + 70;
-    const targetY = this.app.screen.height / 2 - arenaCenter * scale;
-    return this.animatePan(targetX, targetY);
+    // Save current scale so we can restore on panToBase
+    this.savedScale = this.worldContainer.scale.x;
+
+    // Get arena bounds in arena-local coordinates
+    const bounds = this.arena.getBattleBounds();
+    const arenaHeight = bounds.bottom - bounds.top;
+    const arenaWidth = bounds.width;
+
+    // Compute scale to fit arena on screen with padding
+    const padding = 0.85;
+    const scaleX = this.app.screen.width / arenaWidth;
+    const scaleY = this.app.screen.height / arenaHeight;
+    const targetScale = Math.min(scaleX, scaleY) * padding;
+
+    // Arena center in world coordinates
+    const arenaCenterX = this.arenaLayer.x;
+    const arenaCenterY = this.arenaLayer.y + (bounds.top + bounds.bottom) / 2;
+
+    const targetX = this.app.screen.width / 2 - arenaCenterX * targetScale;
+    const targetY = this.app.screen.height / 2 - arenaCenterY * targetScale;
+
+    return this.animateCamera(targetX, targetY, targetScale);
   }
 
-  /** Smoothly pan camera back to the hex grid (base) */
+  /** Smoothly pan + zoom camera back to the hex grid (base) */
   panToBase(): Promise<void> {
     const targetX = this.app.screen.width / 2;
     const targetY = this.app.screen.height / 2;
-    return this.animatePan(targetX, targetY);
+    const targetScale = this.savedScale ?? this.worldContainer.scale.x;
+    this.savedScale = null;
+    return this.animateCamera(targetX, targetY, targetScale);
   }
 
-  private animatePan(targetX: number, targetY: number): Promise<void> {
+  private animateCamera(targetX: number, targetY: number, targetScale: number): Promise<void> {
     if (this.panAnimationId !== null) {
       cancelAnimationFrame(this.panAnimationId);
       this.panAnimationId = null;
@@ -479,6 +521,7 @@ export class GameRenderer {
     return new Promise(resolve => {
       const startX = this.worldContainer.x;
       const startY = this.worldContainer.y;
+      const startScale = this.worldContainer.scale.x;
       const duration = 500;
       const startTime = performance.now();
 
@@ -490,6 +533,8 @@ export class GameRenderer {
 
         this.worldContainer.x = startX + (targetX - startX) * ease;
         this.worldContainer.y = startY + (targetY - startY) * ease;
+        const s = startScale + (targetScale - startScale) * ease;
+        this.worldContainer.scale.set(s);
 
         if (t < 1) {
           this.panAnimationId = requestAnimationFrame(animate);

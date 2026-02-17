@@ -42,6 +42,7 @@ export interface GameEvents {
   'tech:purchased': { techId: string };
   'card:selected': { cardId: string };
   'relic:gained': { relicId: string };
+  'roster:changed': {};
   'base:damaged': { damage: number; remaining: number };
   'game:over': { wave: number };
 }

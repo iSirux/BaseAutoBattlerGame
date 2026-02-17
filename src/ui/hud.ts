@@ -10,10 +10,11 @@ import {
   craftEquipment, equipItem, unequipItem, getCraftableEquipment,
   upgradeBlacksmith, getBlacksmithUpgradeCost,
   purchaseTech, selectCard, generateCardChoices,
-  TIER_ORDER, getBuildingProductionRate,
+  TIER_ORDER, getBuildingProductionRate, getBenchCapacity,
+  sellUnit, upgradeBuilding, getBuildingUpgradeCost,
 } from '@/core/gameState';
 import { countAdjacentDeposits } from '@/hex/grid';
-import { UNIT_DEFS, ENEMY_DEFS } from '@/data/units';
+import { ALL_UNIT_DEFS, ENEMY_DEFS } from '@/data/units';
 import { RELICS } from '@/data/relics';
 import { SFX } from '@/audio/sfx';
 
@@ -25,6 +26,7 @@ const BUILDING_ICON_COLORS: Record<string, string> = {
   archery_range: '#6b8e23',
   blacksmith: '#4a4a4a',
   kennel: '#8b6c42',
+  guardhouse: '#4a6a8b',
 };
 
 export class HUD {
@@ -138,6 +140,7 @@ export class HUD {
       case 'archery_range': return 'Archery Range - Trains ranged units.';
       case 'blacksmith': return 'Blacksmith - Crafts equipment from iron.';
       case 'kennel': return 'Kennel - Trains animal units.';
+      case 'guardhouse': return 'Guardhouse - Trains guard units.';
       default: return def.name;
     }
   }
@@ -252,8 +255,9 @@ export class HUD {
     html += `</div>`;
 
     // Bench
+    const benchCap = getBenchCapacity(state);
     html += `<div class="roster-section">`;
-    html += `<div class="roster-section-title">Bench (${state.bench.length})</div>`;
+    html += `<div class="roster-section-title">Bench (${state.bench.length}/${benchCap})</div>`;
     if (state.bench.length === 0) {
       html += `<div class="roster-empty">Empty</div>`;
     }
@@ -290,6 +294,18 @@ export class HUD {
       });
     });
 
+    // Bind sell buttons
+    content.querySelectorAll('.sell-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const unitId = (btn as HTMLElement).dataset.unitId!;
+        sellUnit(state, unitId);
+        if (this.selectedUnitId === unitId) this.selectedUnitId = null;
+        this.showUnitDetail(state);
+        this.rebuildRosterPanel(state);
+      });
+    });
+
     // Bind unit click for detail
     content.querySelectorAll('.roster-unit').forEach(el => {
       el.addEventListener('click', () => {
@@ -303,7 +319,7 @@ export class HUD {
   private renderRosterUnit(id: string, state: GameState, zone: string): string {
     const unit = state.roster.get(id);
     if (!unit) return '';
-    const def = UNIT_DEFS[unit.defId];
+    const def = ALL_UNIT_DEFS[unit.defId];
     if (!def) return '';
 
     const equipNames: string[] = [];
@@ -329,6 +345,7 @@ export class HUD {
     if (zone !== 'active') html += `<button class="zone-btn" data-unit-id="${id}" data-zone="active" title="Move to Active">A</button>`;
     if (zone !== 'reinforcement') html += `<button class="zone-btn" data-unit-id="${id}" data-zone="reinforcement" title="Move to Reinforcements">R</button>`;
     if (zone !== 'bench') html += `<button class="zone-btn" data-unit-id="${id}" data-zone="bench" title="Move to Bench">B</button>`;
+    html += `<button class="sell-btn zone-btn" data-unit-id="${id}" title="Sell Unit" style="color:#e06060;">$</button>`;
     html += `</div></div>`;
     return html;
   }
@@ -349,7 +366,7 @@ export class HUD {
       return;
     }
 
-    const def = UNIT_DEFS[unit.defId];
+    const def = ALL_UNIT_DEFS[unit.defId];
     let html = `<div class="unit-detail-header">${def?.name ?? 'Unit'}</div>`;
     html += `<div class="unit-detail-stats">`;
     html += `HP: ${unit.stats.maxHp} | ATK: ${unit.stats.attack} | SPD: ${unit.stats.speed}<br>`;
@@ -443,17 +460,21 @@ export class HUD {
 
     let html = '';
     for (const tech of state.techShop) {
-      const affordable = state.bp >= tech.cost;
-      const disabledClass = affordable ? '' : ' disabled';
+      const currentTier = state.purchasedTech.get(tech.id) ?? 0;
+      const cost = tech.baseCost * Math.pow(2, currentTier);
+      const affordable = state.bp >= cost;
+      const maxed = currentTier >= tech.maxTier;
+      const disabledClass = (!affordable || maxed) ? ' disabled' : '';
       const catClass = `tech-cat-${tech.category}`;
+      const tierLabel = tech.maxTier > 1 ? ` (${currentTier}/${tech.maxTier})` : '';
 
       html += `<div class="tech-card${disabledClass}" data-tech-id="${tech.id}">`;
       html += `<div class="tech-card-info">`;
-      html += `<div class="tech-card-name">${tech.name}</div>`;
+      html += `<div class="tech-card-name">${tech.name}${tierLabel}</div>`;
       html += `<div class="tech-card-desc">${tech.description}</div>`;
       html += `<span class="tech-card-category ${catClass}">${tech.category}</span>`;
       html += `</div>`;
-      html += `<div class="tech-card-cost">${tech.cost} BP</div>`;
+      html += `<div class="tech-card-cost">${maxed ? 'MAX' : cost + ' BP'}</div>`;
       html += `</div>`;
     }
 
@@ -574,8 +595,8 @@ export class HUD {
     const content = document.getElementById('hex-info-content')!;
     const sel = input.selectedHex;
 
-    // If showing enemy detail, keep it until a valid hex tile is selected
-    const showingEnemy = this.lastSelectedKey?.startsWith('enemy:');
+    // If showing enemy/player detail, keep it until a valid hex tile is selected
+    const showingEnemy = this.lastSelectedKey?.startsWith('enemy:') || this.lastSelectedKey?.startsWith('player:');
 
     if (!sel) {
       if (!showingEnemy) {
@@ -610,7 +631,7 @@ export class HUD {
     const def = ENEMY_DEFS[defId];
     if (!def) return;
 
-    const isBoss = ['goblin_king', 'orc_warlord', 'troll_chieftain'].includes(defId);
+    const isBoss = !!ENEMY_DEFS[defId]?.isBoss;
 
     let html = '';
     if (this.isMobile) {
@@ -636,6 +657,57 @@ export class HUD {
     content.innerHTML = html;
     panel.classList.add('visible');
     this.lastSelectedKey = `enemy:${defId}`;
+
+    // Mobile close button
+    document.getElementById('hex-info-close')?.addEventListener('click', () => {
+      panel.classList.remove('visible');
+      this.lastSelectedKey = null;
+    });
+  }
+
+  /** Show player unit info in the selection panel (from arena click) */
+  showPlayerUnitDetail(unitId: string, state: GameState): void {
+    const panel = document.getElementById('hex-info')!;
+    const content = document.getElementById('hex-info-content')!;
+    const unit = state.roster.get(unitId);
+    if (!unit) return;
+    const def = ALL_UNIT_DEFS[unit.defId];
+    if (!def) return;
+
+    let html = '';
+    if (this.isMobile) {
+      html += `<button id="hex-info-close" style="
+        position:absolute; top:8px; right:10px;
+        background:none; border:none; color:#e0d8c0;
+        font-size:22px; cursor:pointer; line-height:1; padding:2px 6px;
+      ">&times;</button>`;
+    }
+    html += `<div class="info-header">${def.name}</div>`;
+    html += `<div class="info-section">`;
+    html += `<div class="info-row"><b>Role:</b> ${this.capitalize(def.role)}</div>`;
+    html += `<div class="info-row"><b>HP:</b> ${unit.stats.maxHp}</div>`;
+    html += `<div class="info-row"><b>ATK:</b> ${unit.stats.attack}</div>`;
+    html += `<div class="info-row"><b>SPD:</b> ${unit.stats.speed}</div>`;
+    html += `<div class="info-row"><b>Lives:</b> ${unit.lives}/${unit.maxLives}</div>`;
+    html += `</div>`;
+
+    // Equipment
+    const equipNames: string[] = [];
+    if (unit.equipment.weapon) equipNames.push(unit.equipment.weapon.name);
+    if (unit.equipment.armor) equipNames.push(unit.equipment.armor.name);
+    if (unit.equipment.shield) equipNames.push(unit.equipment.shield.name);
+    if (equipNames.length > 0) {
+      html += `<div class="info-section">`;
+      html += `<div class="info-row"><b>Equipment:</b></div>`;
+      for (const name of equipNames) {
+        html += `<div class="info-row" style="font-size:10px;color:#7ab0d4;">${name}</div>`;
+      }
+      html += `</div>`;
+    }
+
+    content.innerHTML = html;
+    panel.classList.add('visible');
+    this.lastSelectedKey = `player:${unitId}`;
 
     // Mobile close button
     document.getElementById('hex-info-close')?.addEventListener('click', () => {
@@ -726,16 +798,25 @@ export class HUD {
       if (building) {
         const def = BUILDING_DEFS[building.type];
         html += `<div class="info-section">`;
-        html += `<div class="info-row"><b>${def.name}</b></div>`;
+        html += `<div class="info-row"><b>${def.name}</b> <span style="font-size:10px;color:#c8a03c;">Lv.${building.level}</span></div>`;
         if (def.produces) {
           const rate = getBuildingProductionRate(state, building);
           const adjacentCount = countAdjacentDeposits(state.grid, building.coord, def.produces);
           html += `<div class="info-row">Produces: +${rate} ${def.produces}/phase</div>`;
           if (adjacentCount > 1) {
-            const bonusPct = (adjacentCount - 1) * 50;
-            html += `<div class="info-row" style="font-size:10px;color:#7ab0d4;">Adjacency: ${adjacentCount} deposits (+${bonusPct}%)</div>`;
+            const bonusFlat = adjacentCount - 1;
+            html += `<div class="info-row" style="font-size:10px;color:#7ab0d4;">Adjacency: ${adjacentCount} deposits (+${bonusFlat})</div>`;
           }
         }
+
+        // Upgrade button
+        const upgCost = getBuildingUpgradeCost(state, building);
+        const upgAffordable = canAfford(state.resources, upgCost);
+        const upgDisabled = upgAffordable ? '' : ' disabled';
+        html += `<button class="upgrade-bld-btn${upgDisabled}" data-building-id="${building.id}">`;
+        html += `Upgrade to Lv.${building.level + 1} (${this.formatCost(upgCost)})`;
+        html += `</button>`;
+
         html += `</div>`;
 
         // Blacksmith: show crafting UI
@@ -743,16 +824,21 @@ export class HUD {
           html += this.renderBlacksmithPanel(state);
         }
 
-        // Show trainable units for military buildings
-        const trainable = Object.values(UNIT_DEFS).filter((u) => u.trainedAt === building.type);
+        // Show trainable units for military buildings + peasants (trainedAt: null)
+        const trainable = Object.values(ALL_UNIT_DEFS).filter((u) => u.trainedAt === building.type || u.trainedAt === null);
+        const alreadyTrained = state.trainedThisPhase.has(building.id);
         if (trainable.length > 0) {
           html += `<div class="info-section">`;
-          html += `<div class="info-row"><b>Train:</b></div>`;
+          html += `<div class="info-row"><b>Train:</b>`;
+          if (alreadyTrained) html += ` <span style="font-size:10px;color:#e08080;">(trained this phase)</span>`;
+          html += `</div>`;
           for (const uDef of trainable) {
             const affordable = canAfford(state.resources, uDef.trainingCost);
-            const disabledClass = affordable ? '' : ' disabled';
+            const needsBuilding = uDef.trainedAt !== null;
+            const blocked = needsBuilding && alreadyTrained;
+            const disabledClass = (!affordable || blocked) ? ' disabled' : '';
             const costStr = this.formatCost(uDef.trainingCost);
-            html += `<button class="train-btn${disabledClass}" data-unit="${uDef.id}">`;
+            html += `<button class="train-btn${disabledClass}" data-unit="${uDef.id}" data-building-id="${building.id}">`;
             html += `<span class="build-name">${uDef.name}</span>`;
             html += `<span class="build-cost">${costStr}</span>`;
             html += `</button>`;
@@ -803,13 +889,26 @@ export class HUD {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const unitDefId = (btn as HTMLElement).dataset.unit!;
-        const result = trainUnit(state, unitDefId);
+        const bldId = (btn as HTMLElement).dataset.buildingId;
+        const result = trainUnit(state, unitDefId, bldId || undefined);
         if (result) {
           SFX.train();
           this.forceRefreshPanel(state, coord);
           if (this.rosterVisible) this.rebuildRosterPanel(state);
         }
       });
+    });
+
+    // Bind building upgrade buttons
+    content.querySelector('.upgrade-bld-btn:not(.disabled)')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const bldId = (e.currentTarget as HTMLElement).dataset.buildingId!;
+      const result = upgradeBuilding(state, bldId);
+      if (result) {
+        SFX.build();
+        this.onBuildingPlaced?.();
+        this.forceRefreshPanel(state, coord);
+      }
     });
 
     // Bind craft buttons
@@ -906,7 +1005,7 @@ export class HUD {
     });
 
     document.getElementById('dbg-add-unit')?.addEventListener('click', () => {
-      const unit = createUnit('swordsman');
+      const unit = createUnit('militia');
       state.roster.set(unit.id, unit);
       state.bench.push(unit.id);
       gameEvents.emit('unit:trained', { unitId: unit.id });
@@ -926,12 +1025,12 @@ export class HUD {
       console.log('Buildings:', [...state.buildings.values()]);
       console.log('Roster:', [...state.roster.values()]);
       console.log('Equipment Inventory:', state.equipmentInventory);
-      console.log('Tech Purchased:', [...state.purchasedTech]);
+      console.log('Tech Purchased:', [...state.purchasedTech.entries()]);
       console.log('Relics:', state.activeRelics);
     });
 
     document.getElementById('dbg-new-seed')?.addEventListener('click', () => {
-      state.grid = generateGrid(6, Date.now());
+      state.grid = generateGrid(4, Date.now());
       state.buildings.clear();
       for (const tile of state.grid.tiles.values()) {
         tile.buildingId = null;
