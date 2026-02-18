@@ -108,6 +108,10 @@ export interface UnitDef {
   requiredBuildingLevel?: number;
   /** Number of units spawned per building of this type (default 1) */
   spawnCount?: number;
+  /** Movement speed in hexes per second */
+  moveSpeed: number;
+  /** Attack range in hex distance (melee=1, ranged=3) */
+  attackRange: number;
 }
 
 export interface Unit {
@@ -115,9 +119,13 @@ export interface Unit {
   defId: string;
   stats: UnitStats;
   cooldownTimer: number;
+  /** Movement timer — accumulates TICK_DELTA, moves when >= 1/moveSpeed */
+  moveTimer: number;
   lives: number;
   maxLives: number;
   equipment: Partial<Record<EquipmentSlot, EquipmentDef>>;
+  /** Current hex position during battle (set when unit is placed on arena) */
+  hex?: HexCoord;
   /** Mercenary units (from cards/starter) persist across waves until killed */
   isMercenary?: boolean;
 }
@@ -125,15 +133,28 @@ export interface Unit {
 // ── Battle ──
 
 export interface BattleState {
-  frontline: (Unit | null)[];
-  ranged: (Unit | null)[];
+  arenaWidth: number;
+  arenaDepth: number;
+  /** Map from unitId to current hex position */
+  unitPositions: Map<string, HexCoord>;
+  /** Map from hexKey to unitId */
+  hexOccupants: Map<string, string>;
+  /** All player units currently on the map */
+  playerUnits: Map<string, Unit>;
+  /** All enemy units currently on the map */
+  enemyUnits: Map<string, Unit>;
+  /** Player units waiting to enter (spawn at player rear center) */
   reinforcementQueue: Unit[];
-  enemyFrontline: (Unit | null)[];
-  enemyRanged: (Unit | null)[];
-  battleWidth: number;
-  enemyBattleWidth: number;
+  /** Enemy units waiting to enter (spawn at enemy front center) */
+  enemyReinforcementQueue: Unit[];
   tick: number;
   result: BattleResult | null;
+}
+
+/** Player's pre-battle unit placement choices */
+export interface UnitDeployment {
+  /** unitId → starting hex (player zone hexes only) */
+  placements: Map<string, HexCoord>;
 }
 
 export type BattleResult = {
@@ -319,4 +340,7 @@ export interface GameState {
 
   /** Upcoming wave definition (for wave preview) */
   currentWaveDef: WaveDef | null;
+
+  /** Remembered deployment positions by roster-slot index (persists between waves) */
+  savedDeployment: HexCoord[];
 }

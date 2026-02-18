@@ -103,6 +103,53 @@ export function hexRange(center: HexCoord, radius: number): HexCoord[] {
   return results;
 }
 
+/**
+ * BFS pathfinding: find the first step from `from` toward `target`.
+ * Avoids hexes in `blocked` (except the target itself, which is treated as reachable).
+ * Only traverses hexes in `validHexes`.
+ * Returns the neighbor of `from` that is on the shortest path, or null if unreachable.
+ */
+export function bfsNextStep(
+  from: HexCoord,
+  target: HexCoord,
+  blocked: Set<string>,
+  validHexes: Set<string>,
+): HexCoord | null {
+  if (hexEquals(from, target)) return null;
+
+  const targetKey = hexKey(target);
+  const visited = new Set<string>();
+  visited.add(hexKey(from));
+
+  // Queue: each entry tracks the hex and the first step taken from `from`
+  const queue: Array<{ hex: HexCoord; first: HexCoord }> = [];
+
+  for (const n of hexNeighbors(from)) {
+    const nKey = hexKey(n);
+    if (visited.has(nKey)) continue;
+    if (!validHexes.has(nKey)) continue;
+    if (blocked.has(nKey) && nKey !== targetKey) continue;
+    visited.add(nKey);
+    queue.push({ hex: n, first: n });
+  }
+
+  while (queue.length > 0) {
+    const { hex: current, first } = queue.shift()!;
+    if (hexKey(current) === targetKey) return first;
+
+    for (const n of hexNeighbors(current)) {
+      const nKey = hexKey(n);
+      if (visited.has(nKey)) continue;
+      if (!validHexes.has(nKey)) continue;
+      if (blocked.has(nKey) && nKey !== targetKey) continue;
+      visited.add(nKey);
+      queue.push({ hex: n, first });
+    }
+  }
+
+  return null;
+}
+
 /** Get the corner vertices of a hex (for rendering) */
 export function hexCorners(center: { x: number; y: number }, size: number): { x: number; y: number }[] {
   const corners: { x: number; y: number }[] = [];

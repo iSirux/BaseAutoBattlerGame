@@ -12,6 +12,8 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     canEquipArmor: true,
     trainingCost: {},
     trainedAt: 'camp',
+    moveSpeed: 1.5,
+    attackRange: 1,
   },
   militia: {
     id: 'militia',
@@ -23,6 +25,8 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     canEquipArmor: true,
     trainingCost: {},
     trainedAt: 'barracks',
+    moveSpeed: 2.0,
+    attackRange: 1,
   },
   archer: {
     id: 'archer',
@@ -34,6 +38,8 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     canEquipArmor: true,
     trainingCost: {},
     trainedAt: 'archery_range',
+    moveSpeed: 2.0,
+    attackRange: 3,
   },
   guard: {
     id: 'guard',
@@ -45,6 +51,8 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     canEquipArmor: true,
     trainingCost: {},
     trainedAt: 'guardhouse',
+    moveSpeed: 1.5,
+    attackRange: 1,
   },
   wolf: {
     id: 'wolf',
@@ -57,6 +65,8 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     trainingCost: {},
     trainedAt: 'kennel',
     spawnCount: 2,
+    moveSpeed: 4.0,
+    attackRange: 1,
   },
 };
 
@@ -73,6 +83,8 @@ export const UNLOCKABLE_UNIT_DEFS: Record<string, UnitDef> = {
     trainingCost: {},
     trainedAt: 'barracks',
     requiredBuildingLevel: 2,
+    moveSpeed: 2.5,
+    attackRange: 1,
   },
   spearman: {
     id: 'spearman',
@@ -85,6 +97,8 @@ export const UNLOCKABLE_UNIT_DEFS: Record<string, UnitDef> = {
     trainingCost: {},
     trainedAt: 'guardhouse',
     requiredBuildingLevel: 2,
+    moveSpeed: 1.5,
+    attackRange: 2,
   },
   berserker: {
     id: 'berserker',
@@ -97,6 +111,8 @@ export const UNLOCKABLE_UNIT_DEFS: Record<string, UnitDef> = {
     trainingCost: {},
     trainedAt: 'barracks',
     requiredBuildingLevel: 3,
+    moveSpeed: 3.0,
+    attackRange: 1,
   },
   bear: {
     id: 'bear',
@@ -109,6 +125,8 @@ export const UNLOCKABLE_UNIT_DEFS: Record<string, UnitDef> = {
     trainingCost: {},
     trainedAt: 'kennel',
     requiredBuildingLevel: 2,
+    moveSpeed: 2.0,
+    attackRange: 1,
   },
 };
 
@@ -127,6 +145,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     canEquipArmor: false,
     trainingCost: {},
     trainedAt: null,
+    moveSpeed: 2.5,
+    attackRange: 1,
   },
   orc_warrior: {
     id: 'orc_warrior',
@@ -138,6 +158,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     canEquipArmor: false,
     trainingCost: {},
     trainedAt: null,
+    moveSpeed: 2.0,
+    attackRange: 1,
   },
   orc_brute: {
     id: 'orc_brute',
@@ -149,6 +171,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     canEquipArmor: false,
     trainingCost: {},
     trainedAt: null,
+    moveSpeed: 1.5,
+    attackRange: 1,
   },
   goblin_archer: {
     id: 'goblin_archer',
@@ -160,6 +184,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     canEquipArmor: false,
     trainingCost: {},
     trainedAt: null,
+    moveSpeed: 2.0,
+    attackRange: 3,
   },
   troll: {
     id: 'troll',
@@ -171,6 +197,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     canEquipArmor: false,
     trainingCost: {},
     trainedAt: null,
+    moveSpeed: 1.5,
+    attackRange: 1,
   },
   // ── Early Era ──
   bandit: {
@@ -183,6 +211,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     canEquipArmor: false,
     trainingCost: {},
     trainedAt: null,
+    moveSpeed: 2.5,
+    attackRange: 1,
   },
   wild_wolf: {
     id: 'wild_wolf',
@@ -194,6 +224,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     canEquipArmor: false,
     trainingCost: {},
     trainedAt: null,
+    moveSpeed: 4.0,
+    attackRange: 1,
   },
   bandit_archer: {
     id: 'bandit_archer',
@@ -205,6 +237,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     canEquipArmor: false,
     trainingCost: {},
     trainedAt: null,
+    moveSpeed: 2.0,
+    attackRange: 3,
   },
   // ── Mid Era ──
   skeleton: {
@@ -217,6 +251,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     canEquipArmor: false,
     trainingCost: {},
     trainedAt: null,
+    moveSpeed: 2.0,
+    attackRange: 1,
   },
   dark_archer: {
     id: 'dark_archer',
@@ -228,6 +264,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     canEquipArmor: false,
     trainingCost: {},
     trainedAt: null,
+    moveSpeed: 2.0,
+    attackRange: 3,
   },
   // ── Late Era ──
   dark_knight: {
@@ -240,6 +278,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     canEquipArmor: false,
     trainingCost: {},
     trainedAt: null,
+    moveSpeed: 2.0,
+    attackRange: 1,
   },
   demon_imp: {
     id: 'demon_imp',
@@ -251,6 +291,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     canEquipArmor: false,
     trainingCost: {},
     trainedAt: null,
+    moveSpeed: 3.5,
+    attackRange: 1,
   },
   warlock: {
     id: 'warlock',
@@ -262,6 +304,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     canEquipArmor: false,
     trainingCost: {},
     trainedAt: null,
+    moveSpeed: 2.0,
+    attackRange: 3,
   },
   siege_golem: {
     id: 'siege_golem',
@@ -273,6 +317,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     canEquipArmor: false,
     trainingCost: {},
     trainedAt: null,
+    moveSpeed: 1.5,
+    attackRange: 1,
   },
   // ── Bosses ──
   goblin_king: {
@@ -286,6 +332,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     trainingCost: {},
     trainedAt: null,
     isBoss: true,
+    moveSpeed: 2.0,
+    attackRange: 1,
   },
   orc_warlord: {
     id: 'orc_warlord',
@@ -298,6 +346,8 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     trainingCost: {},
     trainedAt: null,
     isBoss: true,
+    moveSpeed: 2.5,
+    attackRange: 1,
   },
   troll_chieftain: {
     id: 'troll_chieftain',
@@ -310,5 +360,7 @@ export const ENEMY_DEFS: Record<string, UnitDef> = {
     trainingCost: {},
     trainedAt: null,
     isBoss: true,
+    moveSpeed: 1.5,
+    attackRange: 1,
   },
 };

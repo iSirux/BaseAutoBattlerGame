@@ -1,4 +1,5 @@
-import { createGameState, tickResources, placeBuilding, prepareBattle, finalizeBattle, advanceToBuild, setPhase } from '@/core/gameState';
+import { createGameState, tickResources, placeBuilding, prepareBattle, finalizeBattle, advanceToBuild, setPhase, INITIAL_BATTLE_WIDTH, getDefaultDeployment } from '@/core/gameState';
+import type { HexCoord } from '@/core/types';
 import { gameEvents } from '@/core/events';
 import { GameRenderer } from '@/render/renderer';
 import { BattlePlayback } from '@/render/battlePlayback';
@@ -6,6 +7,8 @@ import { BattleControls } from '@/ui/battleControls';
 import { HUD } from '@/ui/hud';
 import { STARTER_KITS } from '@/data/starters';
 import { SFX } from '@/audio/sfx';
+import { ALL_UNIT_DEFS } from '@/data/units';
+import type { ArenaUnit } from '@/simulation/battleLog';
 
 function showStarterSelection(): Promise<typeof STARTER_KITS[number]> {
   return new Promise((resolve) => {
@@ -148,16 +151,61 @@ async function main() {
     setPhase(state, 'battle');
     hud.update(state);
 
-    // 2. Prepare battle (instant, produces log)
-    const { battleState, log, result } = prepareBattle(state);
-
-    // 3. Clear wave preview, close panels
+    // 2. Close panels and pan to arena for deployment
     hud.hideSelectionPanel();
     renderer.inputState.selectedHex = null;
     document.getElementById('roster-panel')?.classList.remove('visible');
-
-    // 3. Pan camera to arena
     await renderer.panToArena();
+
+    // 3. Deployment phase: units are auto-placed, player can drag to rearrange
+    const effectiveBattleWidth = INITIAL_BATTLE_WIDTH + state.battleWidthBonus;
+
+    // Build ArenaUnit list for deployment
+    const arenaUnits: ArenaUnit[] = [];
+    for (const id of state.battleRoster) {
+      const unit = state.roster.get(id);
+      if (!unit) continue;
+      const def = ALL_UNIT_DEFS[unit.defId];
+      if (!def) continue;
+      arenaUnits.push({
+        id: unit.id,
+        defId: unit.defId,
+        name: def.name,
+        role: def.role,
+        side: 'player',
+        stats: { ...unit.stats },
+        maxHp: unit.stats.maxHp,
+        lives: unit.lives,
+        maxLives: unit.maxLives,
+        isBoss: false,
+        moveSpeed: def.moveSpeed,
+        attackRange: def.attackRange,
+      });
+    }
+
+    // Build initial placement map: try saved positions by roster-slot index, fall back to default
+    const defaultDeploy = getDefaultDeployment(state, effectiveBattleWidth);
+    const initialPlacements = new Map<string, HexCoord>();
+    state.battleRoster.forEach((unitId, idx) => {
+      const savedHex = state.savedDeployment[idx] as HexCoord | undefined;
+      if (savedHex) {
+        initialPlacements.set(unitId, savedHex);
+      } else {
+        const defaultHex = defaultDeploy.placements.get(unitId);
+        if (defaultHex) initialPlacements.set(unitId, defaultHex);
+      }
+    });
+
+    const deployment = await new Promise<{ placements: Map<string, HexCoord> }>(resolve => {
+      renderer.arena.onDeploymentComplete = resolve;
+      renderer.arena.enterDeploymentMode(arenaUnits, state.currentWaveDef!, effectiveBattleWidth, initialPlacements);
+    });
+
+    // Save deployment positions by roster-slot index for next wave
+    state.savedDeployment = state.battleRoster.map(id => deployment.placements.get(id)).filter((h): h is HexCoord => !!h);
+
+    // 4. Run battle simulation with chosen deployment
+    const { battleState, log, result } = prepareBattle(state, deployment);
 
     // 4. Play back the battle
     const playback = new BattlePlayback(log, renderer.arena);

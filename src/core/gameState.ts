@@ -1,4 +1,4 @@
-import type { GameState, GamePhase, Resources, Unit, Building, HexCoord, BattleState, BattleResult, EquipmentDef, EquipmentTier, EquipmentSlot, Card, CardRarity, CardType, UnitStats, TechEffect, BuildingType } from './types';
+import type { GameState, GamePhase, Resources, Unit, Building, HexCoord, BattleState, BattleResult, EquipmentDef, EquipmentTier, EquipmentSlot, Card, CardRarity, CardType, UnitStats, TechEffect, BuildingType, UnitDeployment } from './types';
 import { uid } from './utils';
 import { gameEvents } from './events';
 import { generateGrid, hasAdjacentDeposit, countAdjacentDeposits } from '@/hex/grid';
@@ -9,14 +9,17 @@ import { EQUIPMENT_DEFS } from '@/data/equipment';
 import { TECH_UPGRADES } from '@/data/tech';
 import { RELICS } from '@/data/relics';
 import { generateWave, calculateBP } from '@/data/waves';
-import { createBattleState } from '@/simulation/battle';
+import { createHexBattleState, createEnemyUnits, ARENA_DEPTH, PLAYER_DEPLOY_ROWS } from '@/simulation/battle';
 import { recordBattle } from '@/simulation/battleLog';
 import type { BattleLog } from '@/simulation/battleLog';
 import type { StarterKit } from './types';
 
 const INITIAL_BASE_HP = 100;
-export const INITIAL_BATTLE_WIDTH = 4;
+export const INITIAL_BATTLE_WIDTH = 8;
+/** Width (columns) enemies deploy across — centered in player arena */
+export const INITIAL_ENEMY_WIDTH = 4;
 export const TIER_ORDER: EquipmentTier[] = ['crude', 'bronze', 'iron', 'steel', 'mithril'];
+export { ARENA_DEPTH, PLAYER_DEPLOY_ROWS } from '@/simulation/battle';
 
 /** Create the initial game state for a new run */
 export function createGameState(seed: number, starterKit: StarterKit): GameState {
@@ -53,6 +56,7 @@ export function createGameState(seed: number, starterKit: StarterKit): GameState
     techLivesBonus: 0,
     buildingUpgradeUnlocked: 1,
     currentWaveDef: null,
+    savedDeployment: [],
   };
 
   // Create starting mercenary unit
@@ -113,6 +117,7 @@ export function createUnit(defId: string): Unit {
     defId,
     stats: { ...def.baseStats },
     cooldownTimer: 0,
+    moveTimer: 0,
     lives: def.baseLives,
     maxLives: def.baseLives,
     equipment: {},
@@ -392,52 +397,87 @@ export function spendResources(state: GameState, cost: Partial<Resources>): void
 }
 
 /** Prepare battle: resets HP, creates BattleState, records battle log. Does NOT mutate roster. */
-export function prepareBattle(state: GameState): { battleState: BattleState; log: BattleLog; result: BattleResult } {
+export function prepareBattle(state: GameState, deployment: UnitDeployment): { battleState: BattleState; log: BattleLog; result: BattleResult } {
   // Reset all roster units' HP to max before battle
   for (const unit of state.roster.values()) {
     unit.stats.hp = unit.stats.maxHp;
   }
 
   const effectiveBattleWidth = INITIAL_BATTLE_WIDTH + state.battleWidthBonus;
+  const wave = state.currentWaveDef ?? generateWave(state.wave);
 
-  // Split battleRoster into melee vs ranged
-  const melee: Unit[] = [];
-  const ranged: Unit[] = [];
+  // Collect all player units (active + reinforcements)
+  const playerUnits: Unit[] = [];
   for (const id of state.battleRoster) {
     const unit = state.roster.get(id);
-    if (!unit) continue;
-    const def = ALL_UNIT_DEFS[unit.defId];
-    if (def?.role === 'ranged') {
-      ranged.push(unit);
-    } else {
-      melee.push(unit);
-    }
+    if (unit) playerUnits.push(unit);
   }
-
-  // Cap ranged to battle width, excess go to bench
-  if (ranged.length > effectiveBattleWidth) {
-    const excess = ranged.splice(effectiveBattleWidth);
-    for (const unit of excess) {
-      // Move excess ranged units to bench
-      state.battleRoster = state.battleRoster.filter(id => id !== unit.id);
-      state.bench.push(unit.id);
-    }
-  }
-
-  // Resolve reinforcement IDs to Unit objects
-  const reinforcements: Unit[] = [];
   for (const id of state.reinforcements) {
     const unit = state.roster.get(id);
-    if (unit) reinforcements.push(unit);
+    if (unit && !playerUnits.some(u => u.id === id)) playerUnits.push(unit);
   }
 
-  const wave = state.currentWaveDef ?? generateWave(state.wave);
-  const battleState = createBattleState(melee, ranged, reinforcements, wave, effectiveBattleWidth, INITIAL_BATTLE_WIDTH);
+  // Create enemy units from wave definition
+  const enemyUnits = createEnemyUnits(wave);
+
+  const battleState = createHexBattleState(playerUnits, enemyUnits, deployment, effectiveBattleWidth, INITIAL_ENEMY_WIDTH);
   const { result, log } = recordBattle(battleState);
 
   gameEvents.emit('battle:started', { totalTicks: log.totalTicks });
 
   return { battleState, log, result };
+}
+
+/** Generate a default auto-deployment for all active player units */
+export function getDefaultDeployment(state: GameState, arenaWidth: number): UnitDeployment {
+  const placements = new Map<string, HexCoord>();
+  const ARENA_DEP = ARENA_DEPTH;
+  const playerRowStart = ARENA_DEP - PLAYER_DEPLOY_ROWS;
+
+  // Collect all units that could participate
+  const allActive = state.battleRoster.map(id => state.roster.get(id)).filter((u): u is Unit => !!u);
+  const reinforcementUnits = state.reinforcements.map(id => state.roster.get(id)).filter((u): u is Unit => !!u);
+  const allUnits = [...allActive, ...reinforcementUnits];
+
+  const tanks = allUnits.filter(u => { const d = ALL_UNIT_DEFS[u.defId]; return d?.role === 'tank' || d?.role === 'animal'; });
+  const melee = allUnits.filter(u => { const d = ALL_UNIT_DEFS[u.defId]; return d?.role === 'melee' || d?.role === 'glass_cannon' || d?.role === 'fodder'; });
+  const ranged = allUnits.filter(u => { const d = ALL_UNIT_DEFS[u.defId]; return d?.role === 'ranged'; });
+
+  const placed = new Set<string>();
+  const usedCoords = new Set<string>();
+
+  const placeGroup = (group: Unit[], preferredRow: number) => {
+    let col = 0;
+    let row = preferredRow;
+    for (const unit of group) {
+      if (placed.has(unit.id)) continue;
+      // Find next available hex in player zone
+      while (row >= playerRowStart) {
+        const coord = hex(col, row);
+        const key = hexKey(coord);
+        if (!usedCoords.has(key)) {
+          placements.set(unit.id, coord);
+          placed.add(unit.id);
+          usedCoords.add(key);
+          col++;
+          if (col >= arenaWidth) { col = 0; row--; }
+          break;
+        }
+        col++;
+        if (col >= arenaWidth) { col = 0; row--; }
+      }
+    }
+  };
+
+  // Front row (closest to enemies): tanks and animals; then melee; back row: ranged
+  placeGroup(tanks, ARENA_DEP - 1);
+  placeGroup(melee, ARENA_DEP - 1);
+  placeGroup(ranged, ARENA_DEP - PLAYER_DEPLOY_ROWS);
+  // Any remaining
+  const remaining = allUnits.filter(u => !placed.has(u.id));
+  placeGroup(remaining, ARENA_DEP - 1);
+
+  return { placements };
 }
 
 /** Finalize battle: award BP, remove dead units, damage base, emit events. */

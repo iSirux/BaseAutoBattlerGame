@@ -2,7 +2,7 @@ import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
 import type { GameState, HexTile, InputState, HexCoord } from '@/core/types';
 import { hexToPixel, hexCorners, pixelToHex, hexKey, hexNeighbors } from '@/hex/coords';
 import { BUILDING_DEFS } from '@/data/buildings';
-import { getBuildingProductionRate } from '@/core/gameState';
+import { getBuildingProductionRate, INITIAL_BATTLE_WIDTH } from '@/core/gameState';
 import { countAdjacentDeposits } from '@/hex/grid';
 import { ArenaRenderer } from './arena';
 
@@ -10,18 +10,17 @@ const HEX_SIZE = 32;
 
 /** Place the arena to the right of the hex grid with a gap. */
 const ARENA_GAP = 40;
-/** Arena vertical center is at local y ≈ 90 (midpoint of -180..360 preview_full range) */
-const ARENA_VERTICAL_CENTER = 90;
+/** Arena vertical center: hex grid is centered at 0, arena content is also centered */
+const ARENA_VERTICAL_CENTER = 0;
 
-/** Slot spacing and padding imported from arena layout constants */
-const ARENA_SLOT_SPACING = 50;
-const ARENA_PAD_X = 160;
+/** Hex battle size (must match arena.ts BATTLE_HEX_SIZE) */
+const BATTLE_HEX_SIZE = 28;
 
-function computeArenaWorldX(gridRadius: number, battleWidth: number = 4): number {
+function computeArenaWorldX(gridRadius: number, battleWidth: number = INITIAL_BATTLE_WIDTH): number {
   // Grid right edge: rightmost hex center x + hex horizontal extent
   const gridRightX = HEX_SIZE * 1.5 * gridRadius + HEX_SIZE;
-  // Arena half-width computed dynamically from battle width
-  const arenaHalfW = Math.max(battleWidth, 4) * ARENA_SLOT_SPACING / 2 + ARENA_PAD_X;
+  // Arena half-width: flat-top hex column spacing is BATTLE_HEX_SIZE * 1.5
+  const arenaHalfW = BATTLE_HEX_SIZE * 1.5 * (battleWidth - 1) / 2 + BATTLE_HEX_SIZE * 1.5;
   return gridRightX + ARENA_GAP + arenaHalfW;
 }
 
@@ -182,6 +181,8 @@ export class GameRenderer {
       }
 
       if (e.button === 0) {
+        // Don't start pan if the arena is handling a unit drag
+        if (this.arena.isDragging) return;
         this.isPanning = true;
         this.panStart = { x: e.clientX, y: e.clientY };
         this.dragDistance = 0;
@@ -225,7 +226,7 @@ export class GameRenderer {
       // Update hovered hex
       this.updateHoveredHex(e.offsetX, e.offsetY);
 
-      if (this.isPanning) {
+      if (this.isPanning && !this.arena.isDragging) {
         const dx = e.clientX - this.panStart.x;
         const dy = e.clientY - this.panStart.y;
         this.dragDistance += Math.abs(dx) + Math.abs(dy);
@@ -339,7 +340,7 @@ export class GameRenderer {
   renderGrid(state: GameState): void {
     this.gridLayer.removeChildren();
     this.buildingLayer.removeChildren();
-    const effectiveBattleWidth = 4 + (state.battleWidthBonus ?? 0);
+    const effectiveBattleWidth = INITIAL_BATTLE_WIDTH + (state.battleWidthBonus ?? 0);
     this.updateArenaPosition(state.grid.radius, effectiveBattleWidth);
 
     for (const tile of state.grid.tiles.values()) {
