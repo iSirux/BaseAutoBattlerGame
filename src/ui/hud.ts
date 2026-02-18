@@ -5,13 +5,14 @@ import type { BuildingDef } from '@/core/types';
 import { hexKey, hexNeighbors } from '@/hex/coords';
 import { generateGrid } from '@/hex/grid';
 import {
-  createUnit, placeBuilding, canAfford, trainUnit,
+  createUnit, placeBuilding, canAfford,
   moveUnitToActive, moveUnitToReinforcements, moveUnitToBench,
   craftEquipment, equipItem, unequipItem, getCraftableEquipment,
   upgradeBlacksmith, getBlacksmithUpgradeCost,
   purchaseTech, selectCard, generateCardChoices,
   TIER_ORDER, getBuildingProductionRate, getBenchCapacity,
   sellUnit, upgradeBuilding, getBuildingUpgradeCost,
+  getBestSpawnableUnit,
 } from '@/core/gameState';
 import { countAdjacentDeposits } from '@/hex/grid';
 import { ALL_UNIT_DEFS, ENEMY_DEFS } from '@/data/units';
@@ -26,6 +27,7 @@ function isFirstFree(type: string, state: GameState): boolean {
 }
 
 const BUILDING_ICON_COLORS: Record<string, string> = {
+  camp: '#8b7355',
   lumber_mill: '#c49a3c',
   quarry: '#b0b0b0',
   iron_mine: '#506878',
@@ -64,6 +66,7 @@ export class HUD {
     const bar = document.getElementById('build-bar')!;
 
     for (const def of Object.values(BUILDING_DEFS)) {
+      if (def.type === 'camp') continue; // Camp is auto-placed, not buildable
       const item = document.createElement('div');
       item.className = 'build-bar-item';
       item.dataset.building = def.type;
@@ -165,11 +168,12 @@ export class HUD {
       return `${def.name} - Produces ${def.produces} (+${def.productionRate}/phase). Must be adjacent to ${def.requiredDeposit} deposit.`;
     }
     switch (def.type) {
-      case 'barracks': return 'Barracks - Trains melee units.';
-      case 'archery_range': return 'Archery Range - Trains ranged units.';
+      case 'camp': return 'Camp - Spawns peasants each wave.';
+      case 'barracks': return 'Barracks - Spawns melee units each wave.';
+      case 'archery_range': return 'Archery Range - Spawns ranged units each wave.';
       case 'blacksmith': return 'Blacksmith - Crafts equipment from iron.';
-      case 'kennel': return 'Kennel - Trains animal units.';
-      case 'guardhouse': return 'Guardhouse - Trains guard units.';
+      case 'kennel': return 'Kennel - Spawns animal units each wave.';
+      case 'guardhouse': return 'Guardhouse - Spawns guard units each wave.';
       default: return def.name;
     }
   }
@@ -363,9 +367,11 @@ export class HUD {
       hearts += i < unit.lives ? '\u2764' : '\u2661';
     }
 
+    const mercBadge = unit.isMercenary ? ' <span style="font-size:9px;color:#ccaa44;">Merc</span>' : '';
+
     let html = `<div class="roster-unit${selected}" data-unit-id="${id}">`;
     html += `<div class="roster-unit-info">`;
-    html += `<div class="roster-unit-name">${def.name} <span class="roster-unit-lives">${hearts}</span></div>`;
+    html += `<div class="roster-unit-name">${def.name}${mercBadge} <span class="roster-unit-lives">${hearts}</span></div>`;
     html += `<div class="roster-unit-stats">HP:${unit.stats.maxHp} ATK:${unit.stats.attack} CD:${unit.stats.cooldown}s</div>`;
     if (equipNames.length > 0) {
       html += `<div style="font-size:9px;color:#7ab0d4;">${equipNames.join(', ')}</div>`;
@@ -379,7 +385,9 @@ export class HUD {
       html += `<button class="zone-btn"${reinforceDisabled} data-unit-id="${id}" data-zone="reinforcement" title="${reinforceFull ? 'Reinforcements Full' : 'Move to Reinforcements'}">R</button>`;
     }
     if (zone !== 'bench') html += `<button class="zone-btn" data-unit-id="${id}" data-zone="bench" title="Move to Bench">B</button>`;
-    html += `<button class="sell-btn zone-btn" data-unit-id="${id}" title="Sell Unit" style="color:#e06060;">$</button>`;
+    if (unit.isMercenary) {
+      html += `<button class="sell-btn zone-btn" data-unit-id="${id}" title="Sell Unit" style="color:#e06060;">$</button>`;
+    }
     html += `</div></div>`;
     return html;
   }
@@ -855,30 +863,22 @@ export class HUD {
           html += this.renderBlacksmithPanel(state);
         }
 
-        // Show trainable units for military buildings + peasants (trainedAt: null)
-        const trainable = Object.values(ALL_UNIT_DEFS).filter((u) => u.trainedAt === building.type || u.trainedAt === null);
-        const alreadyTrained = state.trainedThisPhase.has(building.id);
-        if (trainable.length > 0) {
+        // Show auto-spawn info for military buildings and camp
+        const spawnDef = getBestSpawnableUnit(building.type as import('@/core/types').BuildingType, building.level);
+        if (spawnDef) {
+          const spawnCount = spawnDef.spawnCount ?? 1;
           html += `<div class="info-section">`;
-          html += `<div class="info-row"><b>Train:</b>`;
-          if (alreadyTrained) html += ` <span style="font-size:10px;color:#e08080;">(trained this phase)</span>`;
-          html += `</div>`;
-          for (const uDef of trainable) {
-            const requiredLevel = uDef.requiredBuildingLevel ?? 1;
-            const meetsLevelReq = uDef.trainedAt === null || building.level >= requiredLevel;
-            const affordable = canAfford(state.resources, uDef.trainingCost);
-            const needsBuilding = uDef.trainedAt !== null;
-            const blocked = needsBuilding && alreadyTrained;
-            const disabledClass = (!affordable || blocked || !meetsLevelReq) ? ' disabled' : '';
-            const costStr = this.formatCost(uDef.trainingCost);
-            html += `<button class="train-btn${disabledClass}" data-unit="${uDef.id}" data-building-id="${building.id}">`;
-            html += `<span class="build-name">${uDef.name}`;
-            if (!meetsLevelReq) {
-              html += ` <span style="font-size:9px;color:#e08080;">Req. Lv.${requiredLevel}</span>`;
+          html += `<div class="info-row"><b>Spawns each wave:</b></div>`;
+          html += `<div class="info-row">${spawnDef.name} x${spawnCount}</div>`;
+          html += `<div class="info-row" style="font-size:10px;color:rgba(240,230,211,0.6);">HP:${spawnDef.baseStats.maxHp} ATK:${spawnDef.baseStats.attack} CD:${spawnDef.baseStats.cooldown}s Lives:${spawnDef.baseLives}</div>`;
+
+          // Show what the next level unlocks
+          if (building.level < 3) {
+            const nextDef = getBestSpawnableUnit(building.type as import('@/core/types').BuildingType, building.level + 1);
+            if (nextDef && nextDef.id !== spawnDef.id) {
+              const nextCount = nextDef.spawnCount ?? 1;
+              html += `<div class="info-row" style="font-size:10px;color:#c8a03c;">Lv.${building.level + 1} unlocks: ${nextDef.name} x${nextCount}</div>`;
             }
-            html += `</span>`;
-            html += `<span class="build-cost">${costStr}</span>`;
-            html += `</button>`;
           }
           html += `</div>`;
         }
@@ -925,21 +925,6 @@ export class HUD {
           SFX.build();
           this.onBuildingPlaced?.();
           this.forceRefreshPanel(state, coord);
-        }
-      });
-    });
-
-    // Bind train buttons
-    content.querySelectorAll('.train-btn:not(.disabled)').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const unitDefId = (btn as HTMLElement).dataset.unit!;
-        const bldId = (btn as HTMLElement).dataset.buildingId;
-        const result = trainUnit(state, unitDefId, bldId || undefined);
-        if (result) {
-          SFX.train();
-          this.forceRefreshPanel(state, coord);
-          if (this.rosterVisible) this.rebuildRosterPanel(state);
         }
       });
     });
@@ -1146,6 +1131,7 @@ export class HUD {
   ): { type: string; name: string; cost: Partial<Resources> }[] {
     const results: { type: string; name: string; cost: Partial<Resources> }[] = [];
     for (const def of Object.values(BUILDING_DEFS)) {
+      if (def.type === 'camp') continue; // Camp is auto-placed, not buildable
       if (def.requiredDeposit) {
         const hasDeposit = hexNeighbors(tile.coord).some((n) => {
           const nTile = state.grid.tiles.get(hexKey(n));

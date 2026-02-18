@@ -142,7 +142,7 @@ async function main() {
     battleInProgress = true;
     SFX.click();
 
-    const rosterSizeBefore = state.roster.size;
+    const rosterSizeBefore = [...state.roster.values()].filter(u => u.isMercenary).length;
 
     // 1. Switch to battle phase (hides build UI)
     setPhase(state, 'battle');
@@ -170,7 +170,8 @@ async function main() {
 
     // 5. Finalize battle (mutate state)
     finalizeBattle(state, result, battleState);
-    const unitsLost = rosterSizeBefore - state.roster.size;
+    const mercenariesAfter = [...state.roster.values()].filter(u => u.isMercenary).length;
+    const unitsLost = rosterSizeBefore - mercenariesAfter;
 
     renderer.renderGrid(state);
     hud.update(state);

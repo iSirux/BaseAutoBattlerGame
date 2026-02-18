@@ -1,6 +1,14 @@
 import type { BuildingDef } from '@/core/types';
 
 export const BUILDING_DEFS: Record<string, BuildingDef> = {
+  camp: {
+    type: 'camp',
+    name: 'Camp',
+    cost: { wood: 0, stone: 0, iron: 0 },
+    requiredDeposit: null,
+    produces: null,
+    productionRate: 0,
+  },
   lumber_mill: {
     type: 'lumber_mill',
     name: 'Lumber Mill',

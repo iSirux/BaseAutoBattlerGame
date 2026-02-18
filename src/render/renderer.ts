@@ -49,6 +49,7 @@ const PRODUCTION_TEXT_STYLE = new TextStyle({
 });
 
 const BUILDING_COLORS: Record<string, number> = {
+  camp: 0x8b7355,
   lumber_mill: 0xc49a3c,
   quarry: 0xb0b0b0,
   iron_mine: 0x506878,
@@ -477,26 +478,6 @@ export class GameRenderer {
           this.gridLayer.addChild(label);
         }
 
-        // Train status indicator for military buildings (during build phase)
-        const militaryTypes = new Set(['barracks', 'archery_range', 'kennel', 'guardhouse']);
-        if (militaryTypes.has(building.type) && state.phase === 'build') {
-          const indicator = new Graphics();
-          const dotX = center.x + HEX_SIZE * 0.3;
-          const dotY = center.y - HEX_SIZE * 0.3;
-          if (state.trainedThisPhase.has(building.id)) {
-            // Already trained — dim red X
-            indicator.moveTo(dotX - 3, dotY - 3);
-            indicator.lineTo(dotX + 3, dotY + 3);
-            indicator.moveTo(dotX + 3, dotY - 3);
-            indicator.lineTo(dotX - 3, dotY + 3);
-            indicator.stroke({ color: 0xe06060, width: 1.5, alpha: 0.7 });
-          } else {
-            // Can train — green dot
-            indicator.circle(dotX, dotY, 3);
-            indicator.fill({ color: 0x60e060, alpha: 0.7 });
-          }
-          this.buildingLayer.addChild(indicator);
-        }
       }
     }
 

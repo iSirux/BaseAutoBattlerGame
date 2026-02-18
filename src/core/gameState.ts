@@ -1,8 +1,8 @@
-import type { GameState, GamePhase, Resources, Unit, Building, HexCoord, BattleState, BattleResult, EquipmentDef, EquipmentTier, EquipmentSlot, Card, CardRarity, CardType, UnitStats, TechEffect } from './types';
+import type { GameState, GamePhase, Resources, Unit, Building, HexCoord, BattleState, BattleResult, EquipmentDef, EquipmentTier, EquipmentSlot, Card, CardRarity, CardType, UnitStats, TechEffect, BuildingType } from './types';
 import { uid } from './utils';
 import { gameEvents } from './events';
 import { generateGrid, hasAdjacentDeposit, countAdjacentDeposits } from '@/hex/grid';
-import { hex, hexKey } from '@/hex/coords';
+import { hex, hexKey, hexNeighbors } from '@/hex/coords';
 import { BUILDING_DEFS } from '@/data/buildings';
 import { UNIT_DEFS, ALL_UNIT_DEFS, ENEMY_DEFS } from '@/data/units';
 import { EQUIPMENT_DEFS } from '@/data/equipment';
@@ -35,7 +35,6 @@ export function createGameState(seed: number, starterKit: StarterKit): GameState
     battleRoster: [],
     reinforcements: [],
     bench: [],
-    trainedThisPhase: new Set(),
     purchasedTech: new Map(),
     activeRelics: [],
     battle: null,
@@ -56,8 +55,9 @@ export function createGameState(seed: number, starterKit: StarterKit): GameState
     currentWaveDef: null,
   };
 
-  // Create starting unit
+  // Create starting mercenary unit
   const unit = createUnit(starterKit.unitDefId);
+  unit.isMercenary = true;
   state.roster.set(unit.id, unit);
   state.battleRoster.push(unit.id);
 
@@ -75,11 +75,31 @@ export function createGameState(seed: number, starterKit: StarterKit): GameState
     state.buildings.set(building.id, building);
   }
 
+  // Place camp building on a free adjacent tile
+  const campNeighbors = hexNeighbors(centerCoord);
+  for (const n of campNeighbors) {
+    const nTile = state.grid.tiles.get(hexKey(n));
+    if (nTile && !nTile.buildingId && !nTile.deposit) {
+      const campBuilding: Building = {
+        id: uid('b'),
+        type: 'camp',
+        coord: n,
+        level: 1,
+      };
+      nTile.buildingId = campBuilding.id;
+      state.buildings.set(campBuilding.id, campBuilding);
+      break;
+    }
+  }
+
   // Generate initial tech shop
   generateTechShop(state);
 
   // Generate wave preview for first wave
   state.currentWaveDef = generateWave(1);
+
+  // Auto-spawn units from all buildings
+  autoSpawnUnits(state);
 
   return state;
 }
@@ -137,6 +157,68 @@ function createUnitWithBonuses(defId: string, state: GameState): Unit {
   return unit;
 }
 
+// ── Auto-Spawn System ──
+
+/** Get the best unit a building can spawn at its current level */
+export function getBestSpawnableUnit(buildingType: BuildingType, buildingLevel: number): import('./types').UnitDef | null {
+  let best: import('./types').UnitDef | null = null;
+  let bestLevel = -1;
+  for (const def of Object.values(ALL_UNIT_DEFS)) {
+    if (def.trainedAt !== buildingType) continue;
+    const reqLevel = def.requiredBuildingLevel ?? 1;
+    if (reqLevel <= buildingLevel && reqLevel > bestLevel) {
+      best = def;
+      bestLevel = reqLevel;
+    }
+  }
+  return best;
+}
+
+/** Remove all auto-spawned (non-mercenary) units, returning their equipment to inventory */
+function clearAutoSpawnedUnits(state: GameState): void {
+  const toRemove: string[] = [];
+  for (const [id, unit] of state.roster) {
+    if (unit.isMercenary) continue;
+    // Return equipment to inventory
+    for (const slot of ['weapon', 'armor', 'shield'] as EquipmentSlot[]) {
+      const equip = unit.equipment[slot];
+      if (equip) {
+        removeEquipmentStats(unit, equip);
+        state.equipmentInventory.push(equip);
+      }
+    }
+    toRemove.push(id);
+  }
+  for (const id of toRemove) {
+    state.roster.delete(id);
+  }
+  state.battleRoster = state.battleRoster.filter(id => state.roster.has(id));
+  state.reinforcements = state.reinforcements.filter(id => state.roster.has(id));
+  state.bench = state.bench.filter(id => state.roster.has(id));
+}
+
+/** Auto-spawn units from all buildings */
+export function autoSpawnUnits(state: GameState): void {
+  for (const building of state.buildings.values()) {
+    const unitDef = getBestSpawnableUnit(building.type as BuildingType, building.level);
+    if (!unitDef) continue;
+    const count = unitDef.spawnCount ?? 1;
+    for (let i = 0; i < count; i++) {
+      const unit = createUnitWithBonuses(unitDef.id, state);
+      state.roster.set(unit.id, unit);
+      state.battleRoster.push(unit.id);
+      autoEquip(state, unit);
+    }
+  }
+  gameEvents.emit('roster:changed', {});
+}
+
+/** Clear auto-spawned units and re-spawn fresh ones */
+export function refreshAutoSpawn(state: GameState): void {
+  clearAutoSpawnedUnits(state);
+  autoSpawnUnits(state);
+}
+
 /** Try to place a building on the grid. Returns the building or null if invalid. */
 export function placeBuilding(
   state: GameState,
@@ -182,6 +264,9 @@ export function placeBuilding(
   state.buildings.set(building.id, building);
   gameEvents.emit('building:placed', { buildingId: building.id });
 
+  // Auto-spawn units from new military building
+  refreshAutoSpawn(state);
+
   return building;
 }
 
@@ -195,8 +280,8 @@ export function upgradeBuilding(state: GameState, buildingId: string): boolean {
   // Check tech gating: building level capped by buildingUpgradeUnlocked (max 3)
   if (building.level >= state.buildingUpgradeUnlocked || building.level >= 3) return false;
 
-  // Cost = base cost × 2^(level-1) — so level 1→2 costs 2x base, level 2→3 costs 4x base
-  const costMultiplier = Math.pow(2, building.level - 1);
+  // Cost = base cost × 2^level — so level 1→2 costs 2x base, level 2→3 costs 4x base
+  const costMultiplier = Math.pow(2, building.level);
   const upgradeCost: Partial<Resources> = {};
   for (const [res, amount] of Object.entries(def.cost)) {
     if (amount) upgradeCost[res as keyof Resources] = Math.floor(amount * costMultiplier * state.buildingCostMultiplier);
@@ -206,6 +291,10 @@ export function upgradeBuilding(state: GameState, buildingId: string): boolean {
   spendResources(state, upgradeCost);
   building.level++;
   gameEvents.emit('building:placed', { buildingId }); // reuse event to trigger re-render
+
+  // Auto-spawn better units from upgraded building
+  refreshAutoSpawn(state);
+
   return true;
 }
 
@@ -213,7 +302,7 @@ export function upgradeBuilding(state: GameState, buildingId: string): boolean {
 export function getBuildingUpgradeCost(state: GameState, building: Building): Partial<Resources> {
   const def = BUILDING_DEFS[building.type];
   if (!def) return {};
-  const costMultiplier = Math.pow(2, building.level - 1);
+  const costMultiplier = Math.pow(2, building.level);
   const upgradeCost: Partial<Resources> = {};
   for (const [res, amount] of Object.entries(def.cost)) {
     if (amount) upgradeCost[res as keyof Resources] = Math.floor(amount * costMultiplier * state.buildingCostMultiplier);
@@ -300,48 +389,6 @@ export function spendResources(state: GameState, cost: Partial<Resources>): void
     if (amount) state.resources[res as keyof Resources] -= amount;
   }
   gameEvents.emit('resources:changed', { ...state.resources });
-}
-
-/** Train a unit from a definition ID. Returns the unit or null if invalid. */
-export function trainUnit(state: GameState, defId: string, buildingId?: string): Unit | null {
-  const def = ALL_UNIT_DEFS[defId];
-  if (!def) return null;
-
-  // Peasant (trainedAt: null) can be trained without a building
-  if (def.trainedAt !== null) {
-    const requiredLevel = def.requiredBuildingLevel ?? 1;
-    // Find the specific building instance
-    let targetBuilding: Building | undefined;
-    if (buildingId) {
-      targetBuilding = state.buildings.get(buildingId);
-      if (!targetBuilding || targetBuilding.type !== def.trainedAt) return null;
-    } else {
-      targetBuilding = [...state.buildings.values()].find((b) => b.type === def.trainedAt && !state.trainedThisPhase.has(b.id) && b.level >= requiredLevel);
-    }
-    if (!targetBuilding) return null;
-
-    // Check building level requirement
-    if (targetBuilding.level < requiredLevel) return null;
-
-    // 1-per-building training limit
-    if (state.trainedThisPhase.has(targetBuilding.id)) return null;
-
-    if (!canAfford(state.resources, def.trainingCost)) return null;
-    spendResources(state, def.trainingCost);
-
-    state.trainedThisPhase.add(targetBuilding.id);
-  } else {
-    if (!canAfford(state.resources, def.trainingCost)) return null;
-    spendResources(state, def.trainingCost);
-  }
-
-  const unit = createUnitWithBonuses(defId, state);
-  state.roster.set(unit.id, unit);
-  state.battleRoster.push(unit.id);
-  autoEquip(state, unit);
-  gameEvents.emit('unit:trained', { unitId: unit.id });
-  gameEvents.emit('roster:changed', {});
-  return unit;
 }
 
 /** Prepare battle: resets HP, creates BattleState, records battle log. Does NOT mutate roster. */
@@ -446,7 +493,6 @@ export function advanceToBuild(state: GameState): void {
   state.wave++;
   state.battle = null;
   state.cardChoices = null;
-  state.trainedThisPhase.clear();
 
   // Generate wave preview for the next wave
   state.currentWaveDef = generateWave(state.wave);
@@ -455,6 +501,9 @@ export function advanceToBuild(state: GameState): void {
   if (state.wave % 5 === 0) {
     generateTechShop(state);
   }
+
+  // Clear auto-spawned units and re-spawn fresh ones for the new wave
+  refreshAutoSpawn(state);
 
   setPhase(state, 'build');
 }
@@ -502,12 +551,11 @@ export function moveUnitToBench(state: GameState, unitId: string): void {
   gameEvents.emit('roster:changed', {});
 }
 
-/** Sell a unit: refund 50% of training cost scaled by remaining lives, return equipment */
+/** Sell a mercenary unit: flat refund, return equipment. Auto-spawned units cannot be sold. */
 export function sellUnit(state: GameState, unitId: string): boolean {
   const unit = state.roster.get(unitId);
   if (!unit) return false;
-  const def = ALL_UNIT_DEFS[unit.defId];
-  if (!def) return false;
+  if (!unit.isMercenary) return false;
 
   // Return equipment to inventory
   for (const slot of ['weapon', 'armor', 'shield'] as EquipmentSlot[]) {
@@ -518,13 +566,9 @@ export function sellUnit(state: GameState, unitId: string): boolean {
     }
   }
 
-  // Refund 50% of training cost × (lives/maxLives)
-  const livesRatio = unit.maxLives > 0 ? unit.lives / unit.maxLives : 0;
-  for (const [res, amount] of Object.entries(def.trainingCost)) {
-    if (amount) {
-      state.resources[res as keyof Resources] += Math.floor(amount * 0.5 * livesRatio);
-    }
-  }
+  // Flat refund for mercenary units
+  state.resources.wood += 2;
+  state.resources.stone += 1;
 
   // Remove from roster and all zones
   removeUnitFromAllZones(state, unitId);
@@ -901,7 +945,7 @@ function createUnitCard(rarity: CardRarity): Card {
   return {
     id: uid('card'),
     name: def.name,
-    description: `A trained ${def.name} joins your army.`,
+    description: `A mercenary ${def.name} joins your army. Persists until killed.`,
     rarity,
     type: 'unit',
     effect: { type: 'grant_unit', unitDefId },
@@ -957,6 +1001,7 @@ export function selectCard(state: GameState, cardIndex: number): void {
 
     case 'grant_unit': {
       const unit = createUnitWithBonuses(card.effect.unitDefId, state);
+      unit.isMercenary = true;
       state.roster.set(unit.id, unit);
       state.battleRoster.push(unit.id);
       autoEquip(state, unit);

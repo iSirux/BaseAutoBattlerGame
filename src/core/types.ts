@@ -32,6 +32,7 @@ export interface HexGrid {
 // ── Buildings ──
 
 export type BuildingType =
+  | 'camp'
   | 'lumber_mill'
   | 'quarry'
   | 'iron_mine'
@@ -105,6 +106,8 @@ export interface UnitDef {
   isBoss?: boolean;
   /** Minimum building level required to train this unit (default 1) */
   requiredBuildingLevel?: number;
+  /** Number of units spawned per building of this type (default 1) */
+  spawnCount?: number;
 }
 
 export interface Unit {
@@ -115,6 +118,8 @@ export interface Unit {
   lives: number;
   maxLives: number;
   equipment: Partial<Record<EquipmentSlot, EquipmentDef>>;
+  /** Mercenary units (from cards/starter) persist across waves until killed */
+  isMercenary?: boolean;
 }
 
 // ── Battle ──
@@ -275,8 +280,6 @@ export interface GameState {
   /** Units on the bench (not in battle or reinforcements) */
   bench: string[];
 
-  /** Building IDs that have already trained a unit this phase */
-  trainedThisPhase: Set<string>;
   /** Purchased tech upgrades: tech ID → current tier (1-based) */
   purchasedTech: Map<string, number>;
   /** Collected relics */
