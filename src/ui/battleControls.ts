@@ -1,10 +1,10 @@
-import type { BattlePlayback, PlaybackSpeed } from '@/render/battlePlayback';
+import type { BattleRunner, PlaybackSpeed } from '@/render/battlePlayback';
 
 export class BattleControls {
   private container: HTMLElement;
   private tickCounter: HTMLElement;
   private speedButtons: HTMLElement[];
-  private playback: BattlePlayback | null = null;
+  private runner: BattleRunner | null = null;
 
   constructor() {
     this.container = document.getElementById('battle-controls')!;
@@ -24,7 +24,7 @@ export class BattleControls {
     // Skip button
     const skipBtn = document.getElementById('speed-skip')!;
     skipBtn.addEventListener('click', () => {
-      this.playback?.skip();
+      this.runner?.skip();
     });
     this.speedButtons.push(skipBtn);
 
@@ -32,13 +32,13 @@ export class BattleControls {
     this.setActiveButton('speed-1x');
   }
 
-  bind(playback: BattlePlayback): void {
-    this.playback = playback;
+  bind(runner: BattleRunner): void {
+    this.runner = runner;
     this.setSpeed(1);
 
-    playback.setOnTickUpdate((tick, total) => {
-      this.tickCounter.textContent = `${tick} / ${total}`;
-    });
+    runner.onTickUpdate = (elapsed: number) => {
+      this.tickCounter.textContent = `${elapsed.toFixed(1)}s`;
+    };
   }
 
   show(): void {
@@ -51,7 +51,7 @@ export class BattleControls {
   }
 
   private setSpeed(speed: PlaybackSpeed): void {
-    this.playback?.setSpeed(speed);
+    this.runner?.setSpeed(speed);
     this.setActiveButton(`speed-${speed}x`);
   }
 

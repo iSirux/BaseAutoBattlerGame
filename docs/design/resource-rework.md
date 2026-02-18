@@ -119,10 +119,10 @@ Units are **free**. Buildings produce them automatically — the building IS the
 
 | Building | Lv1 Units | Lv2 Units | Lv3 Units |
 |----------|-----------|-----------|-----------|
-| Barracks | Militia | Swordsman | Berserker |
-| Archery Range | Archer | (future?) | (future?) |
-| Guardhouse | Guard, Spearman | (future?) | (future?) |
-| Kennel | Wolf | Bear | (future?) |
+| Barracks | Militia | Swordsman | Champion |
+| Archery Range | Archer | Crossbowman | Sharpshooter |
+| Guardhouse | Guard | Sentinel | Warden |
+| Kennel | Wolf | Dire Wolf | Alpha Wolf |
 
 - Higher-level units replace lower-level production (or player chooses which tier to produce)
 - Peasants: starter unit / card reward only. Not produced by buildings.
@@ -477,17 +477,17 @@ This creates a **strong coupling between stone branch and unit power**. Even an 
 | 2 | Cleave | 10 iron bars, 4 stone | Attacks deal 50% damage to enemies adjacent to target |
 | 3 | Executioner | 14 iron bars, 6 planks | +50% damage to targets below 30% HP |
 
-**Berserker** (glass cannon, iron identity)
+**Champion** (elite melee, iron identity)
 
 | Tier | Name | Cost | Effect |
 |------|------|------|--------|
-| 1 | Bloodlust | 5 iron bars | +1 attack per kill this battle (stacking) |
-| 2 | Frenzy | 8 iron bars, 4 wood | +0.5 moveSpeed when below 50% HP |
-| 3 | Undying Rage | 12 iron bars | Survive lethal hit once per battle with 1 HP |
+| 1 | Riposte | 6 iron bars | Counter-attack for 50% damage when hit in melee |
+| 2 | Cleave | 10 iron bars, 4 stone | Attacks deal 50% damage to enemies adjacent to target |
+| 3 | Executioner | 14 iron bars, 6 planks | +50% damage to targets below 30% HP |
 
 #### Archery Range Units
 
-**Archer** (ranged, wood identity)
+**Archer** (basic ranged, wood identity)
 
 | Tier | Name | Cost | Effect |
 |------|------|------|--------|
@@ -495,9 +495,25 @@ This creates a **strong coupling between stone branch and unit power**. Even an 
 | 2 | Fire Arrows | 6 planks, 3 iron bars | Attacks apply 1 dmg/tick for 3 ticks (DoT) |
 | 3 | Volley | 10 planks, 5 iron bars | Every 3rd attack hits all enemies in a 2-hex radius |
 
+**Crossbowman** (heavy ranged, wood identity)
+
+| Tier | Name | Cost | Effect |
+|------|------|------|--------|
+| 1 | Heavy Bolt | 5 wood, 2 iron bars | +1 attack vs armored targets (armor > 0) |
+| 2 | Piercing Shot | 8 planks, 4 iron bars | Attacks ignore 1 armor |
+| 3 | Siege Bolts | 12 planks, 6 iron bars | +50% damage to targets with armor ≥ 2 |
+
+**Sharpshooter** (elite ranged, wood identity)
+
+| Tier | Name | Cost | Effect |
+|------|------|------|--------|
+| 1 | Steady Aim | 6 planks | +2 attack when not moving (stood still this tick) |
+| 2 | Headshot | 10 planks, 5 iron bars | 20% chance for double damage on attack |
+| 3 | Deadeye | 14 planks, 8 iron bars | First attack each battle is guaranteed critical (2x damage) |
+
 #### Guardhouse Units
 
-**Guard** (tank, stone identity)
+**Guard** (basic tank, stone identity)
 
 | Tier | Name | Cost | Effect |
 |------|------|------|--------|
@@ -505,13 +521,21 @@ This creates a **strong coupling between stone branch and unit power**. Even an 
 | 2 | Taunt | 6 cut stone, 4 iron bars | Enemies within 2 hex prioritize attacking this guard |
 | 3 | Fortress | 10 dressed stone | -30% damage taken. Cannot move. |
 
-**Spearman** (defensive melee, stone identity)
+**Sentinel** (heavy tank, stone identity)
 
 | Tier | Name | Cost | Effect |
 |------|------|------|--------|
 | 1 | Brace for Charge | 4 stone, 3 wood | Double damage vs units that moved this tick |
-| 2 | Phalanx | 8 cut stone | +2 attack per adjacent spearman |
+| 2 | Phalanx | 8 cut stone | +2 armor per adjacent sentinel |
 | 3 | Hold the Line | 12 dressed stone, 4 iron bars | Enemies cannot move through adjacent hexes (zone of control) |
+
+**Warden** (elite tank, stone identity)
+
+| Tier | Name | Cost | Effect |
+|------|------|------|--------|
+| 1 | Shield Wall | 5 stone, 3 wood | +3 HP when adjacent to another guardhouse unit |
+| 2 | Rallying Presence | 8 cut stone, 4 iron bars | Adjacent allies get +1 armor |
+| 3 | Unbreakable | 14 dressed stone, 6 iron bars | Survive lethal hit once per battle with 1 HP |
 
 #### Kennel Units
 
@@ -519,26 +543,35 @@ This creates a **strong coupling between stone branch and unit power**. Even an 
 
 | Tier | Name | Cost | Effect |
 |------|------|------|--------|
-| 1 | Pack Hunting | 4 wood | +2 attack per adjacent friendly wolf |
+| 1 | Pack Hunting | 4 wood | +2 attack per adjacent friendly wolf/kennel unit |
 | 2 | Hamstring | 6 planks | Attacks reduce target moveSpeed by 50% for 2 ticks |
-| 3 | Alpha Wolf | 10 planks, 4 iron bars | Adjacent wolves attack 20% faster |
+| 3 | Pack Leader | 10 planks, 4 iron bars | Adjacent kennel units attack 20% faster |
 
-**Bear** (heavy animal, wood identity)
+**Dire Wolf** (heavy fast animal, wood identity)
 
 | Tier | Name | Cost | Effect |
 |------|------|------|--------|
-| 1 | Thick Hide | 6 wood, 3 stone | +5 max HP |
-| 2 | Trample | 8 planks, 4 stone | Moving into enemy hex deals 3 damage (push through) |
-| 3 | Roar | 12 planks, 6 cut stone | On entering battle, enemies within 3 hex have -2 attack for 10 ticks |
+| 1 | Savage Bite | 5 wood | +1 attack per consecutive hit on same target |
+| 2 | Frenzy | 8 planks, 3 iron bars | +1.0 moveSpeed when below 50% HP |
+| 3 | Bloodlust | 12 planks, 5 iron bars | +1 attack per kill this battle (stacking) |
+
+**Alpha Wolf** (elite fast animal, wood identity)
+
+| Tier | Name | Cost | Effect |
+|------|------|------|--------|
+| 1 | Intimidating Howl | 6 wood, 3 stone | On entering battle, adjacent enemies have -1 attack for 5 ticks |
+| 2 | Apex Predator | 10 planks, 4 iron bars | +50% damage to targets below 30% HP |
+| 3 | Unstoppable Pack | 14 planks, 8 iron bars | All kennel units gain +2 moveSpeed for 5 ticks when any kennel unit dies |
 
 ### Unit Upgrade Design Properties
 
 1. **Hex grid matters.** Pack Hunting, Phalanx, Shield Wall, Taunt — all reward specific hex positioning. Deployment phase becomes a real puzzle.
-2. **Each upgrade changes behavior**, not just numbers. Taunt changes targeting AI. Trample changes movement rules. Fortress makes guards immovable. These are qualitative shifts.
-3. **Resource identity reinforced.** Wolves cost wood. Guards cost stone. Swordsmen cost iron. Upgrading your army pulls from the same resources you need for buildings and equipment.
+2. **Each upgrade changes behavior**, not just numbers. Taunt changes targeting AI. Hold the Line blocks movement. Fortress makes guards immovable. These are qualitative shifts.
+3. **Resource identity reinforced.** Kennel units cost wood. Guardhouse units cost stone. Barracks units cost iron. Upgrading your army pulls from the same resources you need for buildings and equipment.
 4. **Stone branch gates all tier 2-3 upgrades.** This makes Advanced/Master Construction universally valuable — even iron-rush or wood-rush players need stone tech to unlock their best unit upgrades.
-5. **Ongoing resource sink.** At 9 unit types × 3 tiers, that's 27 upgrades to purchase with resources. You'll never buy all of them. Focus on your core 3-4 unit types.
-6. **Tier 3 upgrades are build-defining.** Fortress Guard, Hold the Line Spearman, Volley Archer, Executioner Swordsman — these are the "I built my whole strategy around this" moments.
+5. **Every building has a full 3-tier track.** Each military building produces 3 unit tiers that stay within the same niche (same range, speed class, role). Higher tiers are strictly better versions, not role changes.
+6. **Ongoing resource sink.** At 12 unit types × 3 tiers, that's 36 upgrades to purchase with resources. You'll never buy all of them. Focus on your core building tracks.
+7. **Tier 3 upgrades are build-defining.** Fortress Guard, Hold the Line Sentinel, Deadeye Sharpshooter, Executioner Champion, Unstoppable Pack Alpha Wolf — these are the "I built my whole strategy around this" moments.
 
 ---
 

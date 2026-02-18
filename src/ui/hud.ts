@@ -3,7 +3,7 @@ import { gameEvents } from '@/core/events';
 import { BUILDING_DEFS } from '@/data/buildings';
 import type { BuildingDef } from '@/core/types';
 import { hexKey, hexNeighbors } from '@/hex/coords';
-import { generateGrid } from '@/hex/grid';
+import { generateGrid, countAdjacentDeposits, getRingCost } from '@/hex/grid';
 import {
   createUnit, placeBuilding, canAfford,
   moveUnitToActive, moveUnitToReinforcements, moveUnitToBench,
@@ -11,20 +11,18 @@ import {
   upgradeBlacksmith, getBlacksmithUpgradeCost,
   purchaseTech, selectCard, generateCardChoices,
   TIER_ORDER, getBuildingProductionRate, getBenchCapacity,
-  sellUnit, upgradeBuilding, getBuildingUpgradeCost,
+  sellUnit, sellBuilding, upgradeBuilding, getBuildingUpgradeCost,
   getBestSpawnableUnit,
+  claimTile,
+  getUpgradeableBuildings,
+  upgradeBuildingFree, finalizeCardSelection, applyPendingStatBuff,
 } from '@/core/gameState';
-import { countAdjacentDeposits } from '@/hex/grid';
 import { ALL_UNIT_DEFS, ENEMY_DEFS } from '@/data/units';
 import { RELICS } from '@/data/relics';
+import { TECH_TREE } from '@/data/tech';
 import { SFX } from '@/audio/sfx';
 
-const FREE_FIRST_BUILDINGS: readonly string[] = ['lumber_mill', 'quarry', 'iron_mine'];
 
-function isFirstFree(type: string, state: GameState): boolean {
-  return FREE_FIRST_BUILDINGS.includes(type) &&
-    ![...state.buildings.values()].some(b => b.type === type);
-}
 
 const BUILDING_ICON_COLORS: Record<string, string> = {
   camp: '#8b7355',
@@ -36,13 +34,15 @@ const BUILDING_ICON_COLORS: Record<string, string> = {
   blacksmith: '#4a4a4a',
   kennel: '#8b6c42',
   guardhouse: '#4a6a8b',
+  sawmill: '#d4a050',
+  smelter: '#b04040',
 };
 
 export class HUD {
   private frameCount = 0;
   private currentFps = 0;
   private fpsLastTime = performance.now();
-  private lastResources = { wood: 0, stone: 0, iron: 0 };
+  private lastResources: Record<string, number> = { wood: 0, stone: 0, iron: 0, planks: 0, cut_stone: 0, iron_bars: 0 };
   private isMobile = window.matchMedia('(max-width: 768px)').matches
     || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
 
@@ -51,6 +51,7 @@ export class HUD {
   private inputState: InputState | null = null;
   private selectedUnitId: string | null = null;
   private rosterVisible = false;
+  private pendingBuffDone: (() => void) | null = null;
 
   /** Callbacks set by main.ts */
   onTechShopOpen: (() => void) | null = null;
@@ -99,6 +100,35 @@ export class HUD {
 
       bar.appendChild(item);
     }
+
+    // Add claim land button
+    const claimItem = document.createElement('div');
+    claimItem.className = 'build-bar-item';
+    claimItem.dataset.building = '__claim__';
+    claimItem.dataset.tip = 'Claim adjacent unclaimed tiles to expand your territory. Costs wood.';
+    const claimIcon = document.createElement('div');
+    claimIcon.className = 'build-bar-icon';
+    claimIcon.style.background = '#40a040';
+    claimIcon.style.display = 'flex';
+    claimIcon.style.alignItems = 'center';
+    claimIcon.style.justifyContent = 'center';
+    claimIcon.style.color = '#fff';
+    claimIcon.style.fontSize = '16px';
+    claimIcon.style.fontWeight = 'bold';
+    claimIcon.textContent = '+';
+    const claimLabel = document.createElement('div');
+    claimLabel.className = 'build-bar-label';
+    claimLabel.textContent = 'Claim';
+    claimItem.appendChild(claimIcon);
+    claimItem.appendChild(claimLabel);
+    claimItem.addEventListener('click', () => {
+      if (inputState.placingBuilding === '__claim__') {
+        inputState.placingBuilding = null;
+      } else {
+        inputState.placingBuilding = '__claim__';
+      }
+    });
+    bar.appendChild(claimItem);
   }
 
   updateBuildBar(state: GameState): void {
@@ -110,39 +140,49 @@ export class HUD {
     for (const item of bar.querySelectorAll('.build-bar-item')) {
       const el = item as HTMLElement;
       const type = el.dataset.building!;
+      if (type === '__claim__') continue; // handled separately below
       const def = BUILDING_DEFS[type];
       if (!def) continue;
 
-      const firstFree = isFirstFree(type, state);
-      let affordable: boolean;
-      if (firstFree) {
-        affordable = true;
-      } else {
-        const adjustedCost: Partial<Resources> = {};
-        for (const [res, amount] of Object.entries(def.cost)) {
-          if (amount) adjustedCost[res as keyof Resources] = Math.floor(amount * state.buildingCostMultiplier);
-        }
-        affordable = canAfford(state.resources, adjustedCost);
+      // Tech gating for processing buildings
+      if (type === 'smelter' && !state.purchasedTech.has('metallurgy')) {
+        el.classList.add('disabled');
+        el.classList.remove('active');
+        el.dataset.tip = 'Requires Metallurgy tech';
+        continue;
       }
+      if (type === 'sawmill' && !state.purchasedTech.has('sawmill_blueprint')) {
+        el.classList.add('disabled');
+        el.classList.remove('active');
+        el.dataset.tip = 'Requires Sawmill Blueprint tech';
+        continue;
+      }
+      // Restore tooltip for unlocked buildings
+      if (type === 'smelter' || type === 'sawmill') {
+        el.dataset.tip = this.buildingTooltip(def);
+      }
+
+      const adjustedCost: Partial<Resources> = {};
+      for (const [res, amount] of Object.entries(def.cost)) {
+        if (amount) adjustedCost[res as keyof Resources] = Math.floor(amount * state.buildingCostMultiplier);
+      }
+      const affordable = canAfford(state.resources, adjustedCost);
 
       // Update cost label
       const costEl = el.querySelector('.build-bar-cost') as HTMLElement | null;
       if (costEl) {
-        if (firstFree) {
-          costEl.textContent = 'Free';
-          costEl.style.color = '#80e060';
-        } else {
-          const adjustedCost: Partial<Resources> = {};
-          for (const [res, amount] of Object.entries(def.cost)) {
-            if (amount) adjustedCost[res as keyof Resources] = Math.floor(amount * state.buildingCostMultiplier);
-          }
-          costEl.textContent = this.formatCost(adjustedCost);
-          costEl.style.color = '';
-        }
+        costEl.textContent = this.formatCost(adjustedCost);
+        costEl.style.color = '';
       }
 
       el.classList.toggle('disabled', !affordable);
       el.classList.toggle('active', placing === type);
+    }
+
+    // Update claim button state
+    const claimBtn = bar.querySelector('[data-building="__claim__"]') as HTMLElement | null;
+    if (claimBtn) {
+      claimBtn.classList.toggle('active', placing === '__claim__');
     }
 
     let cancelBtn = document.getElementById('build-bar-cancel');
@@ -164,16 +204,18 @@ export class HUD {
   }
 
   private buildingTooltip(def: BuildingDef): string {
-    if (def.produces) {
-      return `${def.name} - Produces ${def.produces} (+${def.productionRate}/phase). Must be adjacent to ${def.requiredDeposit} deposit.`;
+    if (def.produces && def.requiredDeposit) {
+      return `${def.name} - Produces ${def.produces} (+${def.productionRate}/phase). Place on ${def.requiredDeposit} deposit. Bonus from adjacent deposits.`;
     }
     switch (def.type) {
-      case 'camp': return 'Camp - Spawns peasants each wave.';
+      case 'camp': return 'Camp - Spawns peasants each wave. Provides 2 wood + 1 stone per phase.';
       case 'barracks': return 'Barracks - Spawns melee units each wave.';
       case 'archery_range': return 'Archery Range - Spawns ranged units each wave.';
       case 'blacksmith': return 'Blacksmith - Crafts equipment from iron.';
       case 'kennel': return 'Kennel - Spawns animal units each wave.';
       case 'guardhouse': return 'Guardhouse - Spawns guard units each wave.';
+      case 'sawmill': return 'Sawmill - Converts wood into planks. Requires Sawmill Blueprint tech.';
+      case 'smelter': return 'Smelter - Converts iron ore into iron bars. Requires Metallurgy tech.';
       default: return def.name;
     }
   }
@@ -193,13 +235,31 @@ export class HUD {
     this.setText('res-wood', String(state.resources.wood));
     this.setText('res-stone', String(state.resources.stone));
     this.setText('res-iron', String(state.resources.iron));
+    this.setText('res-planks', String(state.resources.planks));
+    this.setText('res-cutstone', String(state.resources.cut_stone));
+    this.setText('res-ironbars', String(state.resources.iron_bars));
     this.setText('res-bp', String(state.bp));
+
+    // Show refined resources only when > 0 or player has processing building
+    const hasSawmill = [...state.buildings.values()].some(b => b.type === 'sawmill');
+    const hasSmelter = [...state.buildings.values()].some(b => b.type === 'smelter');
+    const hasQuarryLv2 = [...state.buildings.values()].some(b => b.type === 'quarry' && b.level >= 2);
+
+    const planksItem = document.getElementById('res-planks-item');
+    const cutstoneItem = document.getElementById('res-cutstone-item');
+    const ironbarsItem = document.getElementById('res-ironbars-item');
+    if (planksItem) planksItem.style.display = (hasSawmill || state.resources.planks > 0) ? '' : 'none';
+    if (cutstoneItem) cutstoneItem.style.display = (hasQuarryLv2 || state.resources.cut_stone > 0) ? '' : 'none';
+    if (ironbarsItem) ironbarsItem.style.display = (hasSmelter || state.resources.iron_bars > 0) ? '' : 'none';
 
     // Show per-tick income
     const income = this.calcIncome(state);
-    this.setText('res-income-wood', `(+${income.wood})`);
-    this.setText('res-income-stone', `(+${income.stone})`);
-    this.setText('res-income-iron', `(+${income.iron})`);
+    this.setText('res-income-wood', income.wood ? `(${income.wood > 0 ? '+' : ''}${income.wood})` : '');
+    this.setText('res-income-stone', income.stone ? `(${income.stone > 0 ? '+' : ''}${income.stone})` : '');
+    this.setText('res-income-iron', income.iron ? `(${income.iron > 0 ? '+' : ''}${income.iron})` : '');
+    this.setText('res-income-planks', income.planks ? `(${income.planks > 0 ? '+' : ''}${income.planks})` : '');
+    this.setText('res-income-cutstone', income.cut_stone ? `(${income.cut_stone > 0 ? '+' : ''}${income.cut_stone})` : '');
+    this.setText('res-income-ironbars', income.iron_bars ? `(${income.iron_bars > 0 ? '+' : ''}${income.iron_bars})` : '');
 
     this.setDelta('res-delta-wood', state.resources.wood - this.lastResources.wood);
     this.setDelta('res-delta-stone', state.resources.stone - this.lastResources.stone);
@@ -223,10 +283,9 @@ export class HUD {
     if (techBtn) (techBtn as HTMLElement).style.display = isBuild ? '' : 'none';
     if (rosterBtn) (rosterBtn as HTMLElement).style.display = isBuild ? '' : 'none';
 
-    // Update roster label
-    const totalUnits = state.roster.size;
+    // Update roster label — show deployed/slots
     const activeCount = state.battleRoster.length;
-    this.setText('roster-label', totalUnits > 0 ? `${activeCount}/${totalUnits}` : '');
+    this.setText('roster-label', `${activeCount}/${state.deploymentSlots}`);
 
     // Update relics bar
     this.updateRelicsBar(state);
@@ -265,9 +324,10 @@ export class HUD {
 
     let html = '';
 
-    // Active (battleRoster)
+    // Active (battleRoster) — limited by deploymentSlots
+    const deployFull = state.battleRoster.length >= state.deploymentSlots;
     html += `<div class="roster-section">`;
-    html += `<div class="roster-section-title">Active (${state.battleRoster.length})</div>`;
+    html += `<div class="roster-section-title">Active (${state.battleRoster.length}/${state.deploymentSlots})${deployFull ? ' <span style="color:#e08080;">(Full)</span>' : ''}</div>`;
     if (state.battleRoster.length === 0) {
       html += `<div class="roster-empty">No active units</div>`;
     }
@@ -340,12 +400,21 @@ export class HUD {
       });
     });
 
-    // Bind unit click for detail
+    // Bind unit click for detail — or buff selection when pendingStatBuff is set
     content.querySelectorAll('.roster-unit').forEach(el => {
       el.addEventListener('click', () => {
         const unitId = (el as HTMLElement).dataset.unitId!;
-        this.selectedUnitId = this.selectedUnitId === unitId ? null : unitId;
-        this.showUnitDetail(state);
+        if (state.pendingStatBuff) {
+          applyPendingStatBuff(state, unitId);
+          this.dismissBuffBanner();
+          this.rebuildRosterPanel(state);
+          const done = this.pendingBuffDone;
+          this.pendingBuffDone = null;
+          if (done) done();
+        } else {
+          this.selectedUnitId = this.selectedUnitId === unitId ? null : unitId;
+          this.showUnitDetail(state);
+        }
       });
     });
   }
@@ -378,7 +447,11 @@ export class HUD {
     }
     html += `</div>`;
     html += `<div class="roster-zone-btns">`;
-    if (zone !== 'active') html += `<button class="zone-btn" data-unit-id="${id}" data-zone="active" title="Move to Active">A</button>`;
+    if (zone !== 'active') {
+      const activeFull = state.battleRoster.length >= state.deploymentSlots;
+      const activeDisabled = activeFull ? ' disabled style="opacity:0.3;cursor:not-allowed;"' : '';
+      html += `<button class="zone-btn"${activeDisabled} data-unit-id="${id}" data-zone="active" title="${activeFull ? 'Deployment Full' : 'Move to Active'}">A</button>`;
+    }
     if (zone !== 'reinforcement') {
       const reinforceFull = state.reinforcements.length >= state.reinforcementQueueSize;
       const reinforceDisabled = reinforceFull ? ' disabled style="opacity:0.3;cursor:not-allowed;"' : '';
@@ -495,37 +568,61 @@ export class HUD {
 
     this.setText('ts-bp', String(state.bp));
 
-    if (!state.techShop || state.techShop.length === 0) {
-      container.innerHTML = '<div style="text-align:center;color:rgba(240,230,211,0.4);padding:20px;">No upgrades available</div>';
-      return;
+    const branches: Array<{ key: string; label: string }> = [
+      { key: 'wood', label: 'Wood' },
+      { key: 'stone', label: 'Stone' },
+      { key: 'iron', label: 'Iron' },
+      { key: 'tactical', label: 'Tactical' },
+    ];
+
+    let html = '<div class="tech-tree-grid">';
+
+    for (const branch of branches) {
+      html += `<div class="tech-branch-col tech-branch-${branch.key}">`;
+      html += `<div class="tech-branch-title">${branch.label}</div>`;
+
+      // Get nodes for this branch, sorted by cost
+      const nodes = Object.values(TECH_TREE).filter(n => n.branch === branch.key);
+      nodes.sort((a, b) => a.cost - b.cost);
+
+      for (const node of nodes) {
+        const purchased = state.purchasedTech.has(node.id);
+        const prereqsMet = node.prereqIds.every(id => state.purchasedTech.has(id));
+        const affordable = state.bp >= node.cost;
+        const locked = !purchased && !prereqsMet;
+
+        let cls = 'tech-node';
+        if (purchased) cls += ' purchased';
+        else if (locked) cls += ' locked';
+        else if (!affordable) cls += ' disabled';
+
+        html += `<div class="${cls}" data-tech-id="${node.id}">`;
+        html += `<div class="tech-node-name">${node.name}</div>`;
+        html += `<div class="tech-node-desc">${node.description}</div>`;
+
+        if (purchased) {
+          html += `<div class="tech-node-status" style="color:#80c080;">Purchased</div>`;
+        } else {
+          html += `<div class="tech-node-cost">${node.cost} BP</div>`;
+          if (locked && node.prereqIds.length > 0) {
+            const prereqNames = node.prereqIds.map(id => TECH_TREE[id]?.name ?? id).join(', ');
+            html += `<div class="tech-node-prereq">Requires: ${prereqNames}</div>`;
+          }
+        }
+
+        html += `</div>`;
+      }
+
+      html += `</div>`;
     }
 
-    let html = '';
-    for (const tech of state.techShop) {
-      const currentTier = state.purchasedTech.get(tech.id) ?? 0;
-      const cost = tech.baseCost * Math.pow(2, currentTier);
-      const affordable = state.bp >= cost;
-      const maxed = currentTier >= tech.maxTier;
-      const disabledClass = (!affordable || maxed) ? ' disabled' : '';
-      const catClass = `tech-cat-${tech.category}`;
-      const tierLabel = tech.maxTier > 1 ? ` (${currentTier}/${tech.maxTier})` : '';
-
-      html += `<div class="tech-card${disabledClass}" data-tech-id="${tech.id}">`;
-      html += `<div class="tech-card-info">`;
-      html += `<div class="tech-card-name">${tech.name}${tierLabel}</div>`;
-      html += `<div class="tech-card-desc">${tech.description}</div>`;
-      html += `<span class="tech-card-category ${catClass}">${tech.category}</span>`;
-      html += `</div>`;
-      html += `<div class="tech-card-cost">${maxed ? 'MAX' : cost + ' BP'}</div>`;
-      html += `</div>`;
-    }
-
+    html += '</div>';
     container.innerHTML = html;
 
     // Bind purchase handlers
-    container.querySelectorAll('.tech-card:not(.disabled)').forEach(card => {
-      card.addEventListener('click', () => {
-        const techId = (card as HTMLElement).dataset.techId!;
+    container.querySelectorAll('.tech-node:not(.purchased):not(.locked):not(.disabled)').forEach(node => {
+      node.addEventListener('click', () => {
+        const techId = (node as HTMLElement).dataset.techId!;
         const success = purchaseTech(state, techId);
         if (success) {
           SFX.click();
@@ -584,8 +681,10 @@ export class HUD {
     let cardsHtml = '';
     for (let i = 0; i < state.cardChoices.length; i++) {
       const card = state.cardChoices[i];
-      cardsHtml += `<div class="reward-card rarity-${card.rarity}" data-card-index="${i}">`;
+      const rarityLabel = card.rarity.charAt(0).toUpperCase() + card.rarity.slice(1);
+      cardsHtml += `<div class="reward-card rarity-${card.rarity}" data-card-index="${i}" style="animation-delay: ${i * 0.1}s">`;
       cardsHtml += `<div class="reward-card-name">${card.name}</div>`;
+      cardsHtml += `<div class="reward-card-rarity">${rarityLabel}</div>`;
       cardsHtml += `<div class="reward-card-desc">${card.description}</div>`;
       cardsHtml += `<div class="reward-card-type">${card.type.replace('_', ' ')}</div>`;
       cardsHtml += `</div>`;
@@ -593,15 +692,103 @@ export class HUD {
 
     modal.innerHTML = headerHtml + `<div class="card-choices" id="card-choices">${cardsHtml}</div>`;
 
-    modal.querySelectorAll('.reward-card').forEach(card => {
-      card.addEventListener('click', () => {
-        const idx = parseInt((card as HTMLElement).dataset.cardIndex!);
-        selectCard(state, idx);
+    modal.querySelectorAll('.reward-card').forEach(cardEl => {
+      cardEl.addEventListener('click', () => {
+        const idx = parseInt((cardEl as HTMLElement).dataset.cardIndex!);
+        const chosen = state.cardChoices?.[idx];
+        if (!chosen) return;
+
+        const effectType = chosen.effect.type;
+        if (effectType === 'free_building_upgrade') {
+          this.showBuildingPicker(state, chosen, modal, overlay, onDone);
+        } else if (effectType === 'free_tech_node') {
+          // Sets freeTechPending, closes modal, opens tech panel
+          selectCard(state, idx);
+          SFX.collect();
+          overlay.classList.remove('visible');
+          onDone();
+          this.showTechShop(state);
+        } else if (effectType === 'stat_buff_single_unit') {
+          // Sets pendingStatBuff, closes modal, enters roster-click mode
+          selectCard(state, idx);
+          SFX.collect();
+          overlay.classList.remove('visible');
+          this.pendingBuffDone = onDone;
+          this.showBuffBanner(state);
+          const panel = document.getElementById('roster-panel');
+          panel?.classList.add('visible');
+        } else {
+          selectCard(state, idx);
+          SFX.collect();
+          overlay.classList.remove('visible');
+          onDone();
+        }
+      });
+    });
+  }
+
+  private showBuildingPicker(state: GameState, card: Card, modal: HTMLElement, overlay: HTMLElement, onDone: () => void): void {
+    const buildings = getUpgradeableBuildings(state);
+    if (buildings.length === 0) {
+      // Fallback: shouldn't happen but gracefully skip
+      finalizeCardSelection(state, card.id);
+      overlay.classList.remove('visible');
+      onDone();
+      return;
+    }
+    let html = `<div class="card-selection-title">Choose a Building to Upgrade</div>`;
+    html += `<div class="picker-list">`;
+    for (const b of buildings) {
+      const def = BUILDING_DEFS[b.type];
+      const name = def?.name ?? b.type;
+      html += `<div class="picker-item" data-id="${b.id}">`;
+      html += `<span class="picker-name">${name} (Lv.${b.level} → ${b.level + 1})</span>`;
+      html += `<span class="picker-detail">Free upgrade</span>`;
+      html += `</div>`;
+    }
+    html += `</div>`;
+    modal.innerHTML = html;
+    modal.querySelectorAll('.picker-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const buildingId = (item as HTMLElement).dataset.id!;
+        upgradeBuildingFree(state, buildingId);
+        finalizeCardSelection(state, card.id);
         SFX.collect();
         overlay.classList.remove('visible');
         onDone();
       });
     });
+  }
+
+  private showBuffBanner(state: GameState): void {
+    const buff = state.pendingStatBuff;
+    if (!buff) return;
+    const formatVal = buff.stat === 'glancingChance'
+      ? `+${Math.round(buff.value * 100)}% glancing`
+      : buff.stat === 'maxHp' ? `+${buff.value} max HP` : `+${buff.value} attack`;
+    let banner = document.getElementById('buff-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'buff-banner';
+      document.body.appendChild(banner);
+    }
+    banner.textContent = `Choose a unit to receive ${formatVal} — click a unit in your roster`;
+    banner.classList.add('visible');
+    this.rebuildRosterPanel(state);
+  }
+
+  private dismissBuffBanner(): void {
+    document.getElementById('buff-banner')?.classList.remove('visible');
+  }
+
+  // ── Game Over ──
+
+  showGameOver(wave: number): void {
+    const overlay = document.getElementById('game-over-modal');
+    if (!overlay) return;
+    const waveEl = overlay.querySelector('#game-over-wave');
+    if (waveEl) waveEl.textContent = `Reached Wave ${wave}`;
+    overlay.classList.add('visible');
   }
 
   // ── Relics Bar ──
@@ -723,6 +910,9 @@ export class HUD {
     html += `<div class="info-row"><b>HP:</b> ${def.baseStats.maxHp}</div>`;
     html += `<div class="info-row"><b>ATK:</b> ${def.baseStats.attack}</div>`;
     html += `<div class="info-row"><b>CD:</b> ${def.baseStats.cooldown}s</div>`;
+    if ((def.baseStats.armor ?? 0) > 0) {
+      html += `<div class="info-row"><b>ARM:</b> ${def.baseStats.armor}</div>`;
+    }
     html += `<div class="info-row"><b>Lives:</b> ${def.baseLives}</div>`;
     html += `</div>`;
 
@@ -757,9 +947,12 @@ export class HUD {
     html += `<div class="info-header">${def.name}</div>`;
     html += `<div class="info-section">`;
     html += `<div class="info-row"><b>Role:</b> ${this.capitalize(def.role)}</div>`;
-    html += `<div class="info-row"><b>HP:</b> ${unit.stats.maxHp}</div>`;
+    html += `<div class="info-row"><b>HP:</b> ${unit.stats.hp}/${unit.stats.maxHp}</div>`;
     html += `<div class="info-row"><b>ATK:</b> ${unit.stats.attack}</div>`;
     html += `<div class="info-row"><b>CD:</b> ${unit.stats.cooldown}s</div>`;
+    if ((unit.stats.armor ?? 0) > 0) {
+      html += `<div class="info-row"><b>ARM:</b> ${unit.stats.armor}</div>`;
+    }
     html += `<div class="info-row"><b>Lives:</b> ${unit.lives}/${unit.maxLives}</div>`;
     html += `</div>`;
 
@@ -833,13 +1026,32 @@ export class HUD {
         const def = BUILDING_DEFS[building.type];
         html += `<div class="info-section">`;
         html += `<div class="info-row"><b>${def.name}</b> <span style="font-size:10px;color:#c8a03c;">Lv.${building.level}</span></div>`;
+        if (def.passiveIncome) {
+          const parts: string[] = [];
+          for (const [res, amount] of Object.entries(def.passiveIncome)) {
+            if (amount) parts.push(`+${amount} ${res}`);
+          }
+          if (parts.length > 0) {
+            html += `<div class="info-row">Income: ${parts.join(', ')}/phase</div>`;
+          }
+        }
         if (def.produces) {
           const rate = getBuildingProductionRate(state, building);
-          const adjacentCount = countAdjacentDeposits(state.grid, building.coord, def.produces);
           html += `<div class="info-row">Produces: +${rate} ${def.produces}/phase</div>`;
-          if (adjacentCount > 1) {
-            const bonusFlat = adjacentCount - 1;
-            html += `<div class="info-row" style="font-size:10px;color:#7ab0d4;">Adjacency: ${adjacentCount} deposits (+${bonusFlat})</div>`;
+          if (def.requiredDeposit) {
+            const adjacentCount = countAdjacentDeposits(state.grid, building.coord, def.requiredDeposit);
+            if (adjacentCount > 0) {
+              html += `<div class="info-row" style="font-size:10px;color:#7ab0d4;">Adjacent deposits: ${adjacentCount} (+${adjacentCount})</div>`;
+            }
+          }
+          if (def.consumes) {
+            const consumeParts: string[] = [];
+            for (const [res, amt] of Object.entries(def.consumes)) {
+              if (amt && amt > 0) consumeParts.push(`${amt} ${res}`);
+            }
+            if (consumeParts.length > 0) {
+              html += `<div class="info-row" style="font-size:10px;color:#e08080;">Consumes: ${consumeParts.join(', ')}/phase</div>`;
+            }
           }
         }
 
@@ -854,6 +1066,22 @@ export class HUD {
         } else if (building.level < 3) {
           const nextLevel = building.level + 1;
           html += `<div style="font-size:10px;color:rgba(240,230,211,0.4);margin:4px 0;">Upgrade to Lv.${nextLevel} requires tech</div>`;
+        }
+
+        // Sell button (non-camp buildings only)
+        if (building.type !== 'camp') {
+          const refundParts: string[] = [];
+          for (const [res, amount] of Object.entries(def.cost)) {
+            if (amount) {
+              const adjusted = Math.floor((amount as number) * state.buildingCostMultiplier);
+              const refund = Math.floor(adjusted * 0.5);
+              if (refund > 0) refundParts.push(`${refund}${res.charAt(0).toUpperCase()}`);
+            }
+          }
+          const refundStr = refundParts.length > 0 ? refundParts.join(' ') : 'nothing';
+          html += `<button class="sell-bld-btn" data-building-id="${building.id}" style="background:rgba(200,60,60,0.15);border:1px solid rgba(200,60,60,0.3);color:#f0e6d3;border-radius:4px;padding:5px 8px;cursor:pointer;font-size:12px;margin:3px 0;width:100%;text-align:center;">`;
+          html += `Sell (refund: ${refundStr})`;
+          html += `</button>`;
         }
 
         html += `</div>`;
@@ -884,25 +1112,31 @@ export class HUD {
         }
       }
     } else {
+      // Claim tile option for unclaimed tiles
+      if (!tile.claimed && tile.terrain !== 'mountain') {
+        html += `<div class="info-section">`;
+        const cost = getRingCost(tile.coord);
+        const affordable = cost === 0 || state.resources.wood >= cost;
+        const costStr = cost > 0 ? `${cost} Wood` : 'Free';
+        const disabledClass = affordable ? '' : ' disabled';
+        html += `<button class="build-btn claim-tile-btn${disabledClass}" data-q="${coord.q}" data-r="${coord.r}" data-s="${coord.s}">`;
+        html += `<span class="build-name">Claim Tile</span>`;
+        html += `<span class="build-cost">${costStr}</span>`;
+        html += `</button>`;
+        html += `</div>`;
+      }
+
       const buildable = this.getBuildableHere(tile, state);
       if (buildable.length > 0) {
         html += `<div class="info-section">`;
         html += `<div class="info-row"><b>Build:</b></div>`;
         for (const entry of buildable) {
-          const firstFree = isFirstFree(entry.type, state);
-          let affordable: boolean;
-          let costStr: string;
-          if (firstFree) {
-            affordable = true;
-            costStr = '<span style="color:#80e060;">Free</span>';
-          } else {
-            const adjustedCost: Partial<Resources> = {};
-            for (const [res, amount] of Object.entries(entry.cost)) {
-              if (amount) adjustedCost[res as keyof Resources] = Math.floor(amount * state.buildingCostMultiplier);
-            }
-            affordable = canAfford(state.resources, adjustedCost);
-            costStr = this.formatCost(adjustedCost);
+          const adjustedCost: Partial<Resources> = {};
+          for (const [res, amount] of Object.entries(entry.cost)) {
+            if (amount) adjustedCost[res as keyof Resources] = Math.floor(amount * state.buildingCostMultiplier);
           }
+          const affordable = canAfford(state.resources, adjustedCost);
+          const costStr = this.formatCost(adjustedCost);
           const disabledClass = affordable ? '' : ' disabled';
           html += `<button class="build-btn${disabledClass}" data-building="${entry.type}">`;
           html += `<span class="build-name">${entry.name}</span>`;
@@ -915,8 +1149,21 @@ export class HUD {
 
     content.innerHTML = html;
 
+    // Bind claim tile buttons
+    content.querySelectorAll('.claim-tile-btn:not(.disabled)').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const el = btn as HTMLElement;
+        const claimCoord = { q: parseInt(el.dataset.q!), r: parseInt(el.dataset.r!), s: parseInt(el.dataset.s!) };
+        claimTile(state, claimCoord);
+        SFX.build();
+        this.onBuildingPlaced?.();
+        this.forceRefreshPanel(state, coord);
+      });
+    });
+
     // Bind build buttons
-    content.querySelectorAll('.build-btn:not(.disabled)').forEach((btn) => {
+    content.querySelectorAll('.build-btn:not(.disabled):not(.claim-tile-btn)').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const buildingType = (btn as HTMLElement).dataset.building!;
@@ -938,6 +1185,21 @@ export class HUD {
         SFX.build();
         this.onBuildingPlaced?.();
         this.forceRefreshPanel(state, coord);
+      }
+    });
+
+    // Bind sell building buttons
+    content.querySelector('.sell-bld-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const bldId = (e.currentTarget as HTMLElement).dataset.buildingId!;
+      const result = sellBuilding(state, bldId);
+      if (result) {
+        SFX.build();
+        this.onBuildingPlaced?.();
+        // Clear selection since building is gone
+        if (this.inputState) this.inputState.selectedHex = null;
+        document.getElementById('hex-info')?.classList.remove('visible');
+        this.lastSelectedKey = null;
       }
     });
 
@@ -1005,10 +1267,11 @@ export class HUD {
     return html;
   }
 
-  private formatModifiers(eq: { modifiers: Record<string, number | undefined>; bonusLives?: number }): string {
+  private formatModifiers(eq: { modifiers: Record<string, number | undefined>; bonusLives?: number; hpPercent?: number }): string {
     const parts: string[] = [];
     if (eq.modifiers.attack) parts.push(`+${eq.modifiers.attack}ATK`);
-    if (eq.modifiers.maxHp) parts.push(`+${eq.modifiers.maxHp}HP`);
+    if (eq.hpPercent) parts.push(`+${Math.round(eq.hpPercent * 100)}%HP`);
+    if (eq.modifiers.glancingChance) parts.push(`+${Math.round((eq.modifiers.glancingChance ?? 0) * 100)}%Glance`);
     if (eq.modifiers.cooldown) parts.push(`${(eq.modifiers.cooldown ?? 0) > 0 ? '+' : ''}${eq.modifiers.cooldown}s CD`);
     if (eq.bonusLives) parts.push(`+${eq.bonusLives}Life`);
     return parts.join(' ');
@@ -1031,6 +1294,9 @@ export class HUD {
       state.resources.wood += 50;
       state.resources.stone += 50;
       state.resources.iron += 50;
+      state.resources.planks += 20;
+      state.resources.cut_stone += 20;
+      state.resources.iron_bars += 20;
       gameEvents.emit('resources:changed', { ...state.resources });
     });
 
@@ -1060,7 +1326,7 @@ export class HUD {
     });
 
     document.getElementById('dbg-new-seed')?.addEventListener('click', () => {
-      state.grid = generateGrid(3, Date.now());
+      state.grid = generateGrid(5, Date.now());
       state.buildings.clear();
       for (const tile of state.grid.tiles.values()) {
         tile.buildingId = null;
@@ -1095,6 +1361,7 @@ export class HUD {
 
   private tileSummary(tile: HexTile, state: GameState): string {
     let text = this.terrainLabel(tile.terrain);
+    if (!tile.claimed) text += ' (Unclaimed)';
     if (tile.deposit) text += ` - ${this.capitalize(tile.deposit)} deposit`;
     if (tile.buildingId) {
       const building = state.buildings.get(tile.buildingId);
@@ -1104,9 +1371,11 @@ export class HUD {
         if (def.produces) {
           const rate = getBuildingProductionRate(state, building);
           text += ` +${rate}/${def.produces}`;
-          const adjacentCount = countAdjacentDeposits(state.grid, building.coord, def.produces);
-          if (adjacentCount > 1) {
-            text += ` (${adjacentCount} deposits)`;
+          if (def.requiredDeposit) {
+            const adjacentCount = countAdjacentDeposits(state.grid, building.coord, def.requiredDeposit);
+            if (adjacentCount > 0) {
+              text += ` (${adjacentCount} adj.)`;
+            }
           }
         }
         text += `]`;
@@ -1129,18 +1398,35 @@ export class HUD {
     tile: HexTile,
     state: GameState,
   ): { type: string; name: string; cost: Partial<Resources> }[] {
+    if (!tile.claimed) return [];
+    if (tile.terrain === 'mountain') return [];
+
     const results: { type: string; name: string; cost: Partial<Resources> }[] = [];
     for (const def of Object.values(BUILDING_DEFS)) {
-      if (def.type === 'camp') continue; // Camp is auto-placed, not buildable
+      if (def.type === 'camp') continue;
+
+      // Tech gating
+      if (def.type === 'smelter' && !state.purchasedTech.has('metallurgy')) continue;
+      if (def.type === 'sawmill' && !state.purchasedTech.has('sawmill_blueprint')) continue;
+
+      // Resource buildings must be placed ON a matching deposit
       if (def.requiredDeposit) {
-        const hasDeposit = hexNeighbors(tile.coord).some((n) => {
-          const nTile = state.grid.tiles.get(hexKey(n));
-          return nTile?.deposit === def.requiredDeposit;
-        });
-        if (hasDeposit) results.push({ type: def.type, name: def.name, cost: def.cost });
+        if (tile.deposit !== def.requiredDeposit) continue;
       } else {
-        results.push({ type: def.type, name: def.name, cost: def.cost });
+        // Non-resource buildings cannot be on deposits
+        if (tile.deposit) continue;
       }
+
+      // Terrain restrictions
+      const terrainAllowed: Record<string, string[]> = {
+        lumber_mill: ['forest', 'grass'],
+        quarry: ['rock', 'grass'],
+        smelter: ['grass'],
+        sawmill: ['grass'],
+      };
+      if (terrainAllowed[def.type] && !terrainAllowed[def.type].includes(tile.terrain)) continue;
+
+      results.push({ type: def.type, name: def.name, cost: def.cost });
     }
     return results;
   }
@@ -1150,6 +1436,9 @@ export class HUD {
     if (cost.wood) parts.push(`${cost.wood}W`);
     if (cost.stone) parts.push(`${cost.stone}S`);
     if (cost.iron) parts.push(`${cost.iron}I`);
+    if (cost.planks) parts.push(`${cost.planks}P`);
+    if (cost.cut_stone) parts.push(`${cost.cut_stone}CS`);
+    if (cost.iron_bars) parts.push(`${cost.iron_bars}IB`);
     return parts.join(' ');
   }
 
@@ -1157,11 +1446,28 @@ export class HUD {
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
-  private calcIncome(state: GameState): Resources {
-    const income: Resources = { wood: 0, stone: 0, iron: 0 };
+  private calcIncome(state: GameState): Record<string, number> {
+    const income: Record<string, number> = { wood: 0, stone: 0, iron: 0, planks: 0, cut_stone: 0, iron_bars: 0 };
     for (const building of state.buildings.values()) {
       const def = BUILDING_DEFS[building.type];
-      if (def.produces) {
+
+      // Passive income (e.g. camp)
+      if (def.passiveIncome) {
+        for (const [res, amount] of Object.entries(def.passiveIncome)) {
+          if (amount) income[res] += amount;
+        }
+      }
+
+      if (!def.produces) continue;
+
+      if (def.consumes) {
+        // Processing building: output = productionRate x level (no gatherRate multiplier)
+        income[def.produces] += def.productionRate * building.level;
+        // Show consumption as negative
+        for (const [res, amount] of Object.entries(def.consumes)) {
+          if (amount && amount > 0) income[res] -= amount;
+        }
+      } else if (def.produces) {
         income[def.produces] += getBuildingProductionRate(state, building);
       }
     }

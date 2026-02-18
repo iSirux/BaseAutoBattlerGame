@@ -6,17 +6,14 @@ Comparison of DESIGN.md against actual implementation. Each item notes the desig
 
 ## Unit Roster Mismatches
 
-### 1. Code has 8 player units, design specifies 5
-**Design**: 5 base units — Peasant, Militia, Archer, Guard, Wolf
-**Code**: 8 units — Militia, Swordsman, Spearman, Archer, Berserker, Wolf, Bear (NO Peasant, NO Guard)
+### 1. Unit roster — design and code now aligned
+**Design & Code**: 5 base units (Peasant, Militia, Archer, Guard, Wolf) + 8 unlockable units (Swordsman, Champion, Crossbowman, Sharpshooter, Sentinel, Warden, Dire Wolf, Alpha Wolf).
 
-Specific discrepancies:
-- **Peasant** (design) — **not in code at all**. Design says peasants need no building, cost 2W 1S, and are the fodder fallback.
-- **Guard** (design) — **not in code**. Design specifies Guard (14 HP, 2 ATK, 2 lives, trained at Guardhouse).
-- **Swordsman** (code) — not in design's base roster. Code treats it as the melee role (30 HP, 8 ATK, 4 SPD, 2 lives).
-- **Spearman** (code) — not in design. Code treats as tank role (45 HP, 5 ATK, 3 SPD, 2 lives).
-- **Berserker** (code) — not in design. Code treats as glass_cannon (20 HP, 15 ATK, 6 SPD, 1 life).
-- **Bear** (code) — not in design. Second animal unit (50 HP, 12 ATK, 3 SPD, 2 lives).
+Each military building has a full 3-tier track:
+- Barracks: Militia → Swordsman → Champion (offensive melee)
+- Archery Range: Archer → Crossbowman → Sharpshooter (ranged DPS)
+- Guardhouse: Guard → Sentinel → Warden (defensive tank)
+- Kennel: Wolf → Dire Wolf → Alpha Wolf (fast swarm)
 
 ### 2. Militia role mismatch
 **Design**: Militia is the **melee fighter** role (8 HP, 4 ATK, 2 lives)

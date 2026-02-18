@@ -1,22 +1,21 @@
-import { createGameState, tickResources, placeBuilding, prepareBattle, finalizeBattle, advanceToBuild, setPhase, INITIAL_BATTLE_WIDTH, getDefaultDeployment } from '@/core/gameState';
+import { createGameState, tickResources, placeBuilding, prepareBattle, finalizeBattle, advanceToBuild, setPhase, INITIAL_BATTLE_WIDTH, getDefaultDeployment, claimTile, moveUnitToActive, moveUnitToBench, moveUnitToReinforcements } from '@/core/gameState';
 import type { HexCoord } from '@/core/types';
 import { gameEvents } from '@/core/events';
 import { GameRenderer } from '@/render/renderer';
-import { BattlePlayback } from '@/render/battlePlayback';
+import { BattleRunner } from '@/render/battlePlayback';
 import { BattleControls } from '@/ui/battleControls';
 import { HUD } from '@/ui/hud';
-import { STARTER_KITS } from '@/data/starters';
+import { generateStarterKits } from '@/data/starters';
 import { SFX } from '@/audio/sfx';
-import { ALL_UNIT_DEFS } from '@/data/units';
-import type { ArenaUnit } from '@/simulation/battleLog';
 
-function showStarterSelection(): Promise<typeof STARTER_KITS[number]> {
+function showStarterSelection(): Promise<import('@/core/types').StarterKit> {
   return new Promise((resolve) => {
     const overlay = document.getElementById('starter-select')!;
     const choices = document.getElementById('starter-choices')!;
     choices.innerHTML = '';
 
-    for (const kit of STARTER_KITS) {
+    const kits = generateStarterKits(3);
+    for (const kit of kits) {
       const card = document.createElement('div');
       card.className = 'starter-card';
 
@@ -30,7 +29,7 @@ function showStarterSelection(): Promise<typeof STARTER_KITS[number]> {
         <div class="starter-card-name">${kit.name}</div>
         <div class="starter-card-desc">${kit.description}</div>
         <div class="starter-card-details">
-          <span>Resources: ${resParts.join(', ')}</span>
+          <span>${resParts.join(', ')}</span>
         </div>
       `;
 
@@ -86,10 +85,67 @@ async function main() {
     hud.showPlayerUnitDetail(unitId, state);
   };
 
+  // Preview drag-and-drop: persist moved positions to savedDeployment
+  renderer.arena.onPreviewUnitMoved = (movedUnits) => {
+    for (const { unitId, newHex } of movedUnits) {
+      if (state.battleRoster.includes(unitId)) {
+        state.savedDeployment.set(unitId, newHex);
+      }
+    }
+  };
+
+  // Zone transfers via drag-and-drop (bench/reinforcement ↔ active)
+  renderer.arena.onPreviewZoneChanged = (changes) => {
+    for (const { unitId, toZone, hex: newHex } of changes) {
+      if (toZone === 'active') {
+        moveUnitToActive(state, unitId);
+        // Save deployment position for the newly active unit
+        if (newHex) {
+          state.savedDeployment.set(unitId, newHex);
+        }
+      } else if (toZone === 'bench') {
+        moveUnitToBench(state, unitId);
+      } else if (toZone === 'reinforcement') {
+        moveUnitToReinforcements(state, unitId);
+      }
+    }
+    // Refresh the preview to reflect the new zone assignments
+    if (state.currentWaveDef) {
+      renderer.arena.showWavePreview(state.currentWaveDef, state);
+    }
+  };
+
+  // Arena zone hover tooltip
+  renderer.arena.onArenaHexHover = (label, screenX, screenY) => {
+    const tooltip = document.getElementById('hex-hover')!;
+    if (!label) {
+      tooltip.classList.remove('visible');
+      return;
+    }
+    tooltip.textContent = label;
+    tooltip.classList.add('visible');
+    let left = screenX + 16;
+    let top = screenY - 8;
+    const rect = tooltip.getBoundingClientRect();
+    if (left + rect.width > window.innerWidth) left = screenX - rect.width - 8;
+    if (top + rect.height > window.innerHeight) top = screenY - rect.height - 8;
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
+  };
+
   // Placement mode: click on hex to place the selected building
   renderer.onPlacementClick = (coord) => {
     const buildingType = renderer.inputState.placingBuilding;
     if (!buildingType) return;
+
+    if (buildingType === '__claim__') {
+      const success = claimTile(state, coord);
+      if (success) {
+        SFX.build();
+        renderer.renderGrid(state);
+      }
+      return;
+    }
 
     const result = placeBuilding(state, buildingType, coord);
     if (result) {
@@ -136,6 +192,14 @@ async function main() {
     hud.showTechShop(state);
   });
 
+  // Game over handler
+  gameEvents.on('game:over', ({ wave }) => {
+    hud.showGameOver(wave as number);
+  });
+  document.getElementById('game-over-restart')?.addEventListener('click', () => {
+    location.reload();
+  });
+
   // Track if battle is in progress to prevent double-clicks
   let battleInProgress = false;
 
@@ -150,74 +214,43 @@ async function main() {
     // 1. Switch to battle phase (hides build UI)
     setPhase(state, 'battle');
     hud.update(state);
-
-    // 2. Close panels and pan to arena for deployment
     hud.hideSelectionPanel();
     renderer.inputState.selectedHex = null;
     document.getElementById('roster-panel')?.classList.remove('visible');
-    await renderer.panToArena();
 
-    // 3. Deployment phase: units are auto-placed, player can drag to rearrange
+    // 2. Build deployment from savedDeployment + default fallback
     const effectiveBattleWidth = INITIAL_BATTLE_WIDTH + state.battleWidthBonus;
-
-    // Build ArenaUnit list for deployment
-    const arenaUnits: ArenaUnit[] = [];
-    for (const id of state.battleRoster) {
-      const unit = state.roster.get(id);
-      if (!unit) continue;
-      const def = ALL_UNIT_DEFS[unit.defId];
-      if (!def) continue;
-      arenaUnits.push({
-        id: unit.id,
-        defId: unit.defId,
-        name: def.name,
-        role: def.role,
-        side: 'player',
-        stats: { ...unit.stats },
-        maxHp: unit.stats.maxHp,
-        lives: unit.lives,
-        maxLives: unit.maxLives,
-        isBoss: false,
-        moveSpeed: def.moveSpeed,
-        attackRange: def.attackRange,
-      });
-    }
-
-    // Build initial placement map: try saved positions by roster-slot index, fall back to default
     const defaultDeploy = getDefaultDeployment(state, effectiveBattleWidth);
-    const initialPlacements = new Map<string, HexCoord>();
-    state.battleRoster.forEach((unitId, idx) => {
-      const savedHex = state.savedDeployment[idx] as HexCoord | undefined;
+    const placements = new Map<string, HexCoord>();
+    for (const unitId of state.battleRoster) {
+      const savedHex = state.savedDeployment.get(unitId);
       if (savedHex) {
-        initialPlacements.set(unitId, savedHex);
+        placements.set(unitId, savedHex);
       } else {
         const defaultHex = defaultDeploy.placements.get(unitId);
-        if (defaultHex) initialPlacements.set(unitId, defaultHex);
+        if (defaultHex) placements.set(unitId, defaultHex);
       }
-    });
+    }
+    const deployment = { placements };
 
-    const deployment = await new Promise<{ placements: Map<string, HexCoord> }>(resolve => {
-      renderer.arena.onDeploymentComplete = resolve;
-      renderer.arena.enterDeploymentMode(arenaUnits, state.currentWaveDef!, effectiveBattleWidth, initialPlacements);
-    });
+    // 3. Create battle state and capture initial snapshot (no simulation yet)
+    const { battleState, snapshot } = prepareBattle(state, deployment);
 
-    // Save deployment positions by roster-slot index for next wave
-    state.savedDeployment = state.battleRoster.map(id => deployment.placements.get(id)).filter((h): h is HexCoord => !!h);
-
-    // 4. Run battle simulation with chosen deployment
-    const { battleState, log, result } = prepareBattle(state, deployment);
-
-    // 4. Play back the battle
-    const playback = new BattlePlayback(log, renderer.arena);
-    battleControls.bind(playback);
+    // 4. Pan to arena and run real-time battle
+    await renderer.panToArena();
+    const runner = new BattleRunner(battleState, snapshot, renderer.arena, renderer.app);
+    battleControls.bind(runner);
     battleControls.show();
 
-    await playback.play();
+    await new Promise<void>(resolve => {
+      runner.onBattleEnd = resolve;
+      runner.start();
+    });
 
     battleControls.hide();
 
-    // 5. Finalize battle (mutate state)
-    finalizeBattle(state, result, battleState);
+    // 5. Finalize battle
+    finalizeBattle(state, battleState.result!, battleState);
     const mercenariesAfter = [...state.roster.values()].filter(u => u.isMercenary).length;
     const unitsLost = rosterSizeBefore - mercenariesAfter;
 
@@ -241,7 +274,7 @@ async function main() {
       }
       await renderer.panToBase();
       battleInProgress = false;
-    }, result, unitsLost);
+    }, battleState.result!, unitsLost);
   });
 
   // Main frame loop

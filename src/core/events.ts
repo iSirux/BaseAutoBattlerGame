@@ -35,7 +35,7 @@ export interface GameEvents {
   'unit:died': { unitId: string; livesRemaining: number };
   'unit:eliminated': { unitId: string };
   'battle:tick': { tick: number };
-  'battle:started': { totalTicks: number };
+  'battle:started': {};
   'battle:ended': { winner: 'player' | 'enemy' };
   'wave:started': { wave: number };
   'bp:changed': { bp: number };

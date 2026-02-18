@@ -1,12 +1,12 @@
 import type { BattleState, BattleResult, Unit, UnitRole, HexCoord } from '@/core/types';
-import { battleTick } from './battle';
+import { battleUpdate, TICK_DELTA } from './battle';
 import { ALL_UNIT_DEFS, ENEMY_DEFS } from '@/data/units';
 
 // ── Battle Event Types ──
 
 export type BattleEvent =
-  | { type: 'melee_attack'; attackerId: string; targetId: string; damage: number; targetHp: number; attackerSide: 'player' | 'enemy' }
-  | { type: 'ranged_attack'; attackerId: string; targetId: string; damage: number; targetHp: number; attackerSide: 'player' | 'enemy' }
+  | { type: 'melee_attack'; attackerId: string; targetId: string; damage: number; targetHp: number; attackerSide: 'player' | 'enemy'; timerRemainder: number }
+  | { type: 'ranged_attack'; attackerId: string; targetId: string; damage: number; targetHp: number; attackerSide: 'player' | 'enemy'; timerRemainder: number }
   | { type: 'unit_moved'; unitId: string; side: 'player' | 'enemy'; from: HexCoord; to: HexCoord }
   | { type: 'unit_died'; unitId: string; side: 'player' | 'enemy'; hex: HexCoord; livesRemaining: number }
   | { type: 'reinforcement'; unitId: string; side: 'player' | 'enemy'; hex: HexCoord }
@@ -29,6 +29,7 @@ export interface ArenaUnit {
   isBoss: boolean;
   moveSpeed: number;
   attackRange: number;
+  equipment?: { weapon?: boolean; armor?: boolean; shield?: boolean };
 }
 
 export interface ArenaSnapshot {
@@ -50,7 +51,7 @@ export interface BattleLog {
 
 // ── Snapshot Helpers ──
 
-function unitToArenaUnit(unit: Unit, side: 'player' | 'enemy'): ArenaUnit {
+export function unitToArenaUnit(unit: Unit, side: 'player' | 'enemy'): ArenaUnit {
   const def = side === 'enemy' ? (ENEMY_DEFS[unit.defId] ?? ALL_UNIT_DEFS[unit.defId]) : ALL_UNIT_DEFS[unit.defId];
   return {
     id: unit.id,
@@ -65,10 +66,15 @@ function unitToArenaUnit(unit: Unit, side: 'player' | 'enemy'): ArenaUnit {
     isBoss: !!(side === 'enemy' && ENEMY_DEFS[unit.defId]?.isBoss),
     moveSpeed: def?.moveSpeed ?? 2.0,
     attackRange: def?.attackRange ?? 1,
+    equipment: {
+      weapon: !!unit.equipment?.weapon,
+      armor: !!unit.equipment?.armor,
+      shield: !!unit.equipment?.shield,
+    },
   };
 }
 
-function captureSnapshot(state: BattleState): ArenaSnapshot {
+export function captureSnapshot(state: BattleState): ArenaSnapshot {
   const unitPlacements: { unit: ArenaUnit; hex: HexCoord }[] = [];
 
   for (const [unitId, unitHex] of state.unitPositions) {
@@ -97,12 +103,11 @@ export function recordBattle(battleState: BattleState): { result: BattleResult; 
   const initialState = captureSnapshot(battleState);
   const events: BattleEvent[][] = [];
 
-  const MAX_TICKS = 500;
-  while (battleState.tick < MAX_TICKS) {
+  while (!battleState.result) {
     const tickEvents: BattleEvent[] = [];
     const sink: BattleEventSink = (event) => tickEvents.push(event);
 
-    const continuing = battleTick(battleState, sink);
+    const continuing = battleUpdate(battleState, TICK_DELTA, sink);
     events.push(tickEvents);
 
     if (!continuing) break;

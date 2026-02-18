@@ -1,9 +1,9 @@
 import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
 import type { GameState, HexTile, InputState, HexCoord } from '@/core/types';
-import { hexToPixel, hexCorners, pixelToHex, hexKey, hexNeighbors } from '@/hex/coords';
+import { hexToPixel, hexCorners, pixelToHex, hexKey } from '@/hex/coords';
 import { BUILDING_DEFS } from '@/data/buildings';
-import { getBuildingProductionRate, INITIAL_BATTLE_WIDTH } from '@/core/gameState';
-import { countAdjacentDeposits } from '@/hex/grid';
+import { getBuildingProductionRate, INITIAL_BATTLE_WIDTH, canAfford } from '@/core/gameState';
+import { countAdjacentDeposits, getValidBuildTiles, getClaimableTiles, getRingCost } from '@/hex/grid';
 import { ArenaRenderer } from './arena';
 
 const HEX_SIZE = 32;
@@ -57,6 +57,8 @@ const BUILDING_COLORS: Record<string, number> = {
   blacksmith: 0x4a4a4a,
   kennel: 0x8b6c42,
   guardhouse: 0x4a6a8b,
+  sawmill: 0xd4a050,
+  smelter: 0xb04040,
 };
 
 export class GameRenderer {
@@ -97,7 +99,7 @@ export class GameRenderer {
     this.buildingLayer = new Container();
     this.highlightLayer = new Container();
     this.arenaLayer = new Container();
-    this.arenaLayer.x = computeArenaWorldX(3); // default; updated by updateArenaPosition
+    this.arenaLayer.x = computeArenaWorldX(5); // default; updated by updateArenaPosition
     this.arenaLayer.y = -ARENA_VERTICAL_CENTER; // center arena content vertically at world y=0
 
     this.arena = new ArenaRenderer();
@@ -362,8 +364,57 @@ export class GameRenderer {
     // Placement mode: highlight valid tiles with pulsing effect
     if (placing) {
       const pulse = 0.5 + 0.2 * Math.sin(performance.now() / 400);
+
+      if (placing === '__claim__') {
+        // Claim mode: highlight claimable tiles
+        const claimable = getClaimableTiles(state.grid.tiles, state.claimedTiles);
+        const claimableKeys = new Set(claimable.map(c => hexKey(c)));
+        for (const coord of claimable) {
+          const tile = state.grid.tiles.get(hexKey(coord));
+          if (!tile) continue;
+          const center = hexToPixel(coord, HEX_SIZE);
+          const corners = hexCorners(center, HEX_SIZE - 1);
+          this.validPlacementGfx.poly(corners.flatMap((c) => [c.x, c.y]));
+          this.validPlacementGfx.fill({ color: 0x40ff40, alpha: 0.15 + pulse * 0.1 });
+          this.validPlacementGfx.stroke({ color: 0x40ff40, width: 2, alpha: pulse });
+
+          // Show wood cost label
+          const cost = getRingCost(coord);
+          const costText = cost > 0 ? `${cost}W` : 'Free';
+          const label = new Text({ text: costText, style: PRODUCTION_TEXT_STYLE, resolution: TEXT_RESOLUTION });
+          label.anchor.set(0.5, 0.5);
+          label.x = center.x;
+          label.y = center.y;
+          this.placementLabels.addChild(label);
+        }
+
+        // Hover in claim mode
+        if (hovered) {
+          const hoverKey = hexKey(hovered);
+          const isValid = claimableKeys.has(hoverKey);
+          const center = hexToPixel(hovered, HEX_SIZE);
+          const corners = hexCorners(center, HEX_SIZE - 1);
+          this.hoverGfx.poly(corners.flatMap((c) => [c.x, c.y]));
+          this.hoverGfx.stroke({
+            color: isValid ? 0x40ff40 : 0xff4040,
+            width: 2.5,
+            alpha: 0.8,
+          });
+        }
+        return;
+      }
+
+      // Building placement mode: use getValidBuildTiles
       const def = BUILDING_DEFS[placing];
-      const validTiles = this.getValidPlacementTiles(state, placing);
+      // Compute adjusted cost to check affordability
+      const adjustedCost: Partial<import('@/core/types').Resources> = {};
+      if (def) {
+        for (const [res, amount] of Object.entries(def.cost)) {
+          if (amount) adjustedCost[res as keyof import('@/core/types').Resources] = Math.floor((amount as number) * state.buildingCostMultiplier);
+        }
+      }
+      const playerCanAfford = !def || canAfford(state.resources, adjustedCost);
+      const validTiles = playerCanAfford ? getValidBuildTiles(state.grid.tiles, placing, state.claimedTiles) : new Set<string>();
       for (const key of validTiles) {
         const tile = state.grid.tiles.get(key);
         if (!tile) continue;
@@ -373,17 +424,26 @@ export class GameRenderer {
         this.validPlacementGfx.fill({ color: 0x40ff40, alpha: 0.15 + pulse * 0.1 });
         this.validPlacementGfx.stroke({ color: 0x40ff40, width: 2, alpha: pulse });
 
-        // Show projected production rate for resource buildings
+        // Show projected production rate for resource/processing buildings
         if (def?.produces) {
-          const adjacentCount = countAdjacentDeposits(state.grid, tile.coord, def.produces);
-          const extraDeposits = Math.max(0, adjacentCount - 1);
-          const baseRate = def.productionRate + extraDeposits;
-          const rate = Math.floor(baseRate * state.gatherRateMultiplier);
-          const label = new Text({ text: `+${rate}`, style: PRODUCTION_TEXT_STYLE, resolution: TEXT_RESOLUTION });
-          label.anchor.set(0.5, 0.5);
-          label.x = center.x;
-          label.y = center.y;
-          this.placementLabels.addChild(label);
+          const isProcessing = !!(def as any).consumes;
+          if (isProcessing) {
+            const label = new Text({ text: `+${def.productionRate}`, style: PRODUCTION_TEXT_STYLE, resolution: TEXT_RESOLUTION });
+            label.anchor.set(0.5, 0.5);
+            label.x = center.x;
+            label.y = center.y;
+            this.placementLabels.addChild(label);
+          } else if (def.requiredDeposit) {
+            const adjacentCount = countAdjacentDeposits(state.grid, tile.coord, def.requiredDeposit);
+            const extraDeposits = Math.max(0, adjacentCount - 1);
+            const baseRate = def.productionRate + extraDeposits;
+            const rate = Math.floor(baseRate * state.gatherRateMultiplier);
+            const label = new Text({ text: `+${rate}`, style: PRODUCTION_TEXT_STYLE, resolution: TEXT_RESOLUTION });
+            label.anchor.set(0.5, 0.5);
+            label.x = center.x;
+            label.y = center.y;
+            this.placementLabels.addChild(label);
+          }
         }
       }
 
@@ -427,22 +487,7 @@ export class GameRenderer {
 
   /** Get set of hex keys where a building type can be validly placed */
   private getValidPlacementTiles(state: GameState, buildingType: string): Set<string> {
-    const valid = new Set<string>();
-    const def = BUILDING_DEFS[buildingType];
-    if (!def) return valid;
-
-    for (const [key, tile] of state.grid.tiles) {
-      if (tile.buildingId) continue; // already occupied
-      if (def.requiredDeposit) {
-        const hasDeposit = hexNeighbors(tile.coord).some((n) => {
-          const nTile = state.grid.tiles.get(hexKey(n));
-          return nTile?.deposit === def.requiredDeposit;
-        });
-        if (!hasDeposit) continue;
-      }
-      valid.add(key);
-    }
-    return valid;
+    return getValidBuildTiles(state.grid.tiles, buildingType, state.claimedTiles);
   }
 
   private drawHexTile(tile: HexTile, state: GameState): void {
@@ -456,9 +501,27 @@ export class GameRenderer {
       fillColor = DEPOSIT_COLORS[tile.deposit] ?? fillColor;
     }
 
+    const alpha = tile.claimed ? 0.8 : 0.3;
     gfx.poly(corners.flatMap((c) => [c.x, c.y]));
-    gfx.fill({ color: fillColor, alpha: 0.8 });
+    gfx.fill({ color: fillColor, alpha });
     gfx.stroke({ color: 0x2a2a3e, width: 1 });
+
+    // Mountain decoration: draw a small peak triangle
+    if (tile.terrain === 'mountain') {
+      const peakSize = HEX_SIZE * 0.3;
+      gfx.moveTo(center.x, center.y - peakSize);
+      gfx.lineTo(center.x - peakSize * 0.7, center.y + peakSize * 0.3);
+      gfx.lineTo(center.x + peakSize * 0.7, center.y + peakSize * 0.3);
+      gfx.closePath();
+      gfx.fill({ color: 0x888888, alpha: 0.6 });
+    }
+
+    // Deposit indicator: small colored circle on deposit tiles (they're unbuildable now)
+    if (tile.deposit && !tile.buildingId) {
+      const depositColor = DEPOSIT_COLORS[tile.deposit] ?? 0xffffff;
+      gfx.circle(center.x, center.y, HEX_SIZE * 0.2);
+      gfx.fill({ color: depositColor, alpha: 0.9 });
+    }
 
     if (tile.buildingId) {
       const building = state.buildings.get(tile.buildingId);

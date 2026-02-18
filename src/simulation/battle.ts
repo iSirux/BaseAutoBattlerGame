@@ -5,17 +5,17 @@ import type { WaveDef } from '@/core/types';
 import type { BattleEventSink } from './battleLog';
 import { hex, hexKey, hexDistance, bfsNextStep } from '@/hex/coords';
 
-/** Time delta per battle tick (seconds) */
+/** Time delta per battle tick (seconds) — kept for recordBattle compatibility */
 export const TICK_DELTA = 0.1;
 
-/** Number of rows in the battle arena (2 enemy + 5 neutral + 2 player) */
+/** Number of rows in the battle arena (4 enemy + 1 neutral + 4 player) */
 export const ARENA_DEPTH = 9;
 
 /** Enemy deployment rows (top of arena) */
-const ENEMY_DEPLOY_ROWS = 2;
+export const ENEMY_DEPLOY_ROWS = 4;
 
 /** Player deployment rows (bottom of arena) */
-export const PLAYER_DEPLOY_ROWS = 2;
+export const PLAYER_DEPLOY_ROWS = 4;
 
 /** Build the set of all valid arena hexes */
 function buildValidHexes(arenaWidth: number, arenaDepth: number): Set<string> {
@@ -129,6 +129,7 @@ export function createHexBattleState(
     enemyUnits: enemyUnitsMap,
     reinforcementQueue,
     enemyReinforcementQueue,
+    playerDeploymentSlots: placedPlayerIds.size,
     tick: 0,
     result: null,
   };
@@ -183,9 +184,14 @@ function findTargetInRange(
   return best?.unit ?? null;
 }
 
-/** Apply damage to a unit */
-function applyDamage(target: Unit, damage: number): void {
-  target.stats.hp = Math.max(0, target.stats.hp - damage);
+/** Apply damage to a unit, with glancing blows and armor reduction. Returns actual damage dealt. */
+function applyDamage(target: Unit, rawDamage: number): number {
+  const effectiveDamage = (target.stats.glancingChance > 0 && Math.random() < target.stats.glancingChance)
+    ? Math.floor(rawDamage * 0.6)
+    : rawDamage;
+  const reduced = Math.max(1, effectiveDamage - (target.stats.armor ?? 0));
+  target.stats.hp = Math.max(0, target.stats.hp - reduced);
+  return reduced;
 }
 
 /** Remove a unit from the arena maps */
@@ -203,10 +209,23 @@ function removeUnit(
   unitsMap.delete(unitId);
 }
 
-/** Advance the battle by one tick. Returns true if battle is still ongoing. */
-export function battleTick(state: BattleState, sink?: BattleEventSink): boolean {
+/** Advance the battle by dt seconds. Returns true if battle is still ongoing. */
+export function battleUpdate(state: BattleState, dt: number, sink?: BattleEventSink): boolean {
   if (state.result) return false;
-  state.tick++;
+
+  state.tick += dt;
+
+  // ── Timeout (50 real seconds) ──
+  if (state.tick >= 50) {
+    state.result = {
+      winner: 'enemy',
+      survivingEnemies: [...state.enemyUnits.values()],
+      survivingAllies: [...state.playerUnits.values(), ...state.reinforcementQueue],
+      bpEarned: 0,
+    };
+    sink?.({ type: 'battle_end', winner: 'enemy' });
+    return false;
+  }
 
   const validHexes = buildValidHexes(state.arenaWidth, state.arenaDepth);
 
@@ -230,7 +249,7 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
       if (nearest.dist <= range) continue;
 
       // Advance move timer
-      unit.moveTimer += TICK_DELTA;
+      unit.moveTimer += dt;
       const moveInterval = 1 / getMoveSpeed(unit);
       if (unit.moveTimer < moveInterval) continue;
       unit.moveTimer = 0;
@@ -273,7 +292,7 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
       const unitHex = state.unitPositions.get(unitId);
       if (!unitHex) continue;
 
-      unit.cooldownTimer += TICK_DELTA;
+      unit.cooldownTimer += dt;
       if (unit.cooldownTimer < unit.stats.cooldown) continue;
 
       const range = getAttackRange(unit);
@@ -281,16 +300,17 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
       if (!target) continue;
 
       unit.cooldownTimer -= unit.stats.cooldown;
-      applyDamage(target, unit.stats.attack);
+      const actualDamage = applyDamage(target, unit.stats.attack);
 
       const attackType = range > 1 ? 'ranged_attack' : 'melee_attack';
       sink?.({
         type: attackType,
         attackerId: unitId,
         targetId: target.id,
-        damage: unit.stats.attack,
+        damage: actualDamage,
         targetHp: target.stats.hp,
         attackerSide: side,
+        timerRemainder: unit.cooldownTimer,
       });
     }
   };
@@ -332,6 +352,8 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
     side: 'player' | 'enemy',
   ) => {
     if (queue.length === 0) return;
+    // Player reinforcements only enter when active unit count drops below deployment slots
+    if (side === 'player' && state.playerUnits.size >= state.playerDeploymentSlots) return;
 
     // Spawn hex: center of rear row for player, center of front row for enemy
     const spawnQ = Math.floor(state.arenaWidth / 2);
@@ -379,17 +401,8 @@ export function battleTick(state: BattleState, sink?: BattleEventSink): boolean 
 
 /** Run the entire battle to completion */
 export function runBattle(state: BattleState): BattleResult {
-  const MAX_TICKS = 500;
-  while (battleTick(state) && state.tick < MAX_TICKS) {
-    // continue
-  }
-  if (!state.result) {
-    state.result = {
-      winner: 'enemy',
-      survivingEnemies: [],
-      survivingAllies: [],
-      bpEarned: 0,
-    };
+  while (!state.result) {
+    battleUpdate(state, TICK_DELTA);
   }
   return state.result;
 }

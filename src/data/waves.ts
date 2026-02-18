@@ -43,40 +43,41 @@ function generateNormalWave(waveNumber: number): { defId: string; count: number 
   const enemies: { defId: string; count: number }[] = [];
 
   if (waveNumber <= 9) {
-    // Early era: bandits, wild wolves, bandit archers
-    enemies.push({ defId: 'bandit', count: 1 + Math.floor(waveNumber / 2) });
-    if (waveNumber >= 2) enemies.push({ defId: 'wild_wolf', count: Math.floor(waveNumber / 3) });
-    if (waveNumber >= 3) enemies.push({ defId: 'bandit_archer', count: Math.floor(waveNumber / 3) });
-    if (waveNumber >= 5) enemies.push({ defId: 'goblin', count: Math.floor(waveNumber / 3) });
-    if (waveNumber >= 7) enemies.push({ defId: 'goblin_archer', count: Math.floor(waveNumber / 4) });
+    // Early era: goblin runts gate wave 1-3, then bandits, wolves, archers ramp up
+    if (waveNumber <= 3) enemies.push({ defId: 'goblin_runt', count: 4 - waveNumber }); // 3, 2, 1
+    if (waveNumber >= 2) enemies.push({ defId: 'bandit', count: 1 + Math.floor(waveNumber / 4) });
+    if (waveNumber >= 3) enemies.push({ defId: 'wild_wolf', count: 1 });
+    if (waveNumber >= 4) enemies.push({ defId: 'bandit_archer', count: 1 });
+    if (waveNumber >= 6) enemies.push({ defId: 'goblin', count: 1 });
+    if (waveNumber >= 9) enemies.push({ defId: 'goblin_archer', count: 1 });
   } else if (waveNumber <= 19) {
     // Mid era: orcs, skeletons, dark archers
     const scale = waveNumber - 9;
-    enemies.push({ defId: 'orc_warrior', count: 2 + Math.floor(scale / 2) });
-    enemies.push({ defId: 'skeleton', count: 1 + Math.floor(scale / 2) });
-    enemies.push({ defId: 'goblin_archer', count: 1 + Math.floor(scale / 3) });
-    if (waveNumber >= 12) enemies.push({ defId: 'dark_archer', count: Math.floor(scale / 3) });
-    if (waveNumber >= 14) enemies.push({ defId: 'orc_brute', count: Math.floor(scale / 3) });
-    if (waveNumber >= 16) enemies.push({ defId: 'troll', count: Math.floor(scale / 4) });
+    enemies.push({ defId: 'orc_warrior', count: 1 + Math.floor(scale / 3) });
+    enemies.push({ defId: 'skeleton', count: Math.floor(scale / 3) });
+    enemies.push({ defId: 'goblin_archer', count: 1 });
+    if (waveNumber >= 13) enemies.push({ defId: 'dark_archer', count: 1 });
+    if (waveNumber >= 16) enemies.push({ defId: 'orc_brute', count: 1 });
+    if (waveNumber >= 18) enemies.push({ defId: 'troll', count: 1 });
   } else if (waveNumber <= 29) {
     // Late era: dark knights, demons, warlocks, siege golems
     const scale = waveNumber - 19;
-    enemies.push({ defId: 'orc_warrior', count: 3 + scale });
-    enemies.push({ defId: 'dark_knight', count: 1 + Math.floor(scale / 3) });
-    enemies.push({ defId: 'demon_imp', count: Math.floor(scale / 2) });
-    enemies.push({ defId: 'dark_archer', count: 1 + Math.floor(scale / 3) });
-    if (waveNumber >= 22) enemies.push({ defId: 'warlock', count: Math.floor(scale / 4) });
-    if (waveNumber >= 25) enemies.push({ defId: 'siege_golem', count: Math.floor(scale / 5) });
-    enemies.push({ defId: 'troll', count: Math.floor(scale / 3) });
+    enemies.push({ defId: 'orc_warrior', count: 2 + Math.floor(scale / 4) });
+    enemies.push({ defId: 'dark_knight', count: 1 + Math.floor(scale / 5) });
+    enemies.push({ defId: 'demon_imp', count: Math.floor(scale / 4) });
+    enemies.push({ defId: 'dark_archer', count: 1 });
+    if (waveNumber >= 23) enemies.push({ defId: 'warlock', count: 1 });
+    if (waveNumber >= 26) enemies.push({ defId: 'siege_golem', count: 1 });
+    if (waveNumber >= 25) enemies.push({ defId: 'troll', count: 1 });
   } else {
     // Wave 30+: all enemies with scaling
     const scale = waveNumber - 29;
-    enemies.push({ defId: 'dark_knight', count: 2 + Math.floor(scale / 2) });
-    enemies.push({ defId: 'demon_imp', count: 2 + Math.floor(scale / 2) });
-    enemies.push({ defId: 'warlock', count: 1 + Math.floor(scale / 3) });
-    enemies.push({ defId: 'siege_golem', count: 1 + Math.floor(scale / 4) });
-    enemies.push({ defId: 'orc_brute', count: 2 + Math.floor(scale / 3) });
-    enemies.push({ defId: 'troll', count: 1 + Math.floor(scale / 3) });
+    enemies.push({ defId: 'dark_knight', count: 2 + Math.floor(scale / 3) });
+    enemies.push({ defId: 'demon_imp', count: 2 + Math.floor(scale / 3) });
+    enemies.push({ defId: 'warlock', count: 1 + Math.floor(scale / 4) });
+    enemies.push({ defId: 'siege_golem', count: Math.floor(scale / 4) });
+    enemies.push({ defId: 'orc_brute', count: 1 + Math.floor(scale / 4) });
+    enemies.push({ defId: 'troll', count: Math.floor(scale / 4) });
   }
 
   return enemies;
@@ -87,26 +88,29 @@ function generateEliteWave(waveNumber: number): { defId: string; count: number }
   const enemies: { defId: string; count: number }[] = [];
 
   if (waveNumber === 5) {
-    enemies.push({ defId: 'bandit', count: 4 });
-    enemies.push({ defId: 'wild_wolf', count: 3 });
-    enemies.push({ defId: 'bandit_archer', count: 2 });
+    enemies.push({ defId: 'bandit', count: 3 });
+    enemies.push({ defId: 'wild_wolf', count: 2 });
+    enemies.push({ defId: 'bandit_archer', count: 1 });
   } else if (waveNumber <= 15) {
-    enemies.push({ defId: 'orc_warrior', count: waveNumber - 4 });
-    enemies.push({ defId: 'skeleton', count: Math.floor(waveNumber / 3) });
-    enemies.push({ defId: 'orc_brute', count: Math.floor(waveNumber / 5) });
-    enemies.push({ defId: 'dark_archer', count: Math.floor(waveNumber / 4) });
+    const s = waveNumber - 10;
+    enemies.push({ defId: 'orc_warrior', count: 2 + Math.floor(s / 2) });
+    enemies.push({ defId: 'skeleton', count: 1 + Math.floor(s / 4) });
+    if (waveNumber >= 15) enemies.push({ defId: 'orc_brute', count: 1 });
+    enemies.push({ defId: 'dark_archer', count: Math.floor(s / 4) });
   } else if (waveNumber <= 25) {
-    enemies.push({ defId: 'dark_knight', count: 2 + Math.floor(waveNumber / 10) });
-    enemies.push({ defId: 'orc_warrior', count: waveNumber - 8 });
-    enemies.push({ defId: 'troll', count: Math.floor(waveNumber / 5) });
-    enemies.push({ defId: 'warlock', count: Math.floor(waveNumber / 8) });
-    enemies.push({ defId: 'dark_archer', count: Math.floor(waveNumber / 4) });
+    const s = waveNumber - 20;
+    enemies.push({ defId: 'dark_knight', count: 2 + Math.floor(s / 3) });
+    enemies.push({ defId: 'orc_warrior', count: 2 + Math.floor(s / 3) });
+    enemies.push({ defId: 'troll', count: 1 + Math.floor(s / 5) });
+    enemies.push({ defId: 'warlock', count: Math.floor(s / 4) });
+    enemies.push({ defId: 'dark_archer', count: 1 + Math.floor(s / 5) });
   } else {
-    enemies.push({ defId: 'dark_knight', count: 3 + Math.floor(waveNumber / 8) });
-    enemies.push({ defId: 'demon_imp', count: 2 + Math.floor(waveNumber / 8) });
-    enemies.push({ defId: 'siege_golem', count: 1 + Math.floor(waveNumber / 15) });
-    enemies.push({ defId: 'warlock', count: 2 + Math.floor(waveNumber / 10) });
-    enemies.push({ defId: 'troll', count: Math.floor(waveNumber / 6) });
+    const s = waveNumber - 25;
+    enemies.push({ defId: 'dark_knight', count: 3 + Math.floor(s / 4) });
+    enemies.push({ defId: 'demon_imp', count: 2 + Math.floor(s / 4) });
+    enemies.push({ defId: 'siege_golem', count: 1 + Math.floor(s / 8) });
+    enemies.push({ defId: 'warlock', count: 2 + Math.floor(s / 5) });
+    enemies.push({ defId: 'troll', count: 1 + Math.floor(s / 6) });
   }
 
   return enemies;
@@ -146,7 +150,7 @@ function generateBossWave(waveNumber: number): { defId: string; count: number }[
 }
 
 /** Calculate BP reward for a wave */
-export function calculateBP(waveNumber: number, won: boolean): number {
-  const base = waveNumber;
-  return won ? base * 2 : Math.max(1, Math.floor(base / 2));
+export function calculateBP(waveNumber: number, _won: boolean, isBoss: boolean = false): number {
+  const base = 3;
+  return isBoss ? base + 5 : base;
 }

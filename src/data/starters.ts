@@ -1,36 +1,35 @@
-import type { StarterKit } from '@/core/types';
+import type { StarterKit, BuildingType, UnitDef } from '@/core/types';
+import { BUILDING_DEFS } from '@/data/buildings';
+import { UNIT_DEFS } from '@/data/units';
+import { shuffle, pick } from '@/core/utils';
 
-export const STARTER_KITS: StarterKit[] = [
-  {
-    id: 'militia_kit',
-    name: 'Militia Kit',
-    description: 'A mercenary militia. Barracks auto-spawns soldiers each wave.',
-    unitDefId: 'militia',
-    buildingType: 'barracks',
-    startingResources: { wood: 10, stone: 5, iron: 0 },
-  },
-  {
-    id: 'frontier_kit',
-    name: 'Frontier Kit',
-    description: 'A mercenary archer. Archery range auto-spawns archers each wave.',
-    unitDefId: 'archer',
-    buildingType: 'archery_range',
-    startingResources: { wood: 8, stone: 0, iron: 5 },
-  },
-  {
-    id: 'beastmaster_kit',
-    name: 'Beastmaster Kit',
-    description: 'A mercenary wolf. Kennel auto-spawns wolves each wave.',
-    unitDefId: 'wolf',
-    buildingType: 'kennel',
-    startingResources: { wood: 12, stone: 0, iron: 0 },
-  },
-  {
-    id: 'defender_kit',
-    name: 'Defender Kit',
-    description: 'A mercenary guard. Guardhouse auto-spawns guards each wave.',
-    unitDefId: 'guard',
-    buildingType: 'guardhouse',
-    startingResources: { wood: 5, stone: 10, iron: 0 },
-  },
-];
+/** Military building types that auto-spawn units (valid starter buildings) */
+const STARTER_BUILDING_TYPES: BuildingType[] = ['barracks', 'archery_range', 'kennel', 'guardhouse'];
+
+/** Base units eligible to be a starting mercenary (level 1, non-peasant) */
+const MERC_UNITS: UnitDef[] = Object.values(UNIT_DEFS).filter(
+  (u) => STARTER_BUILDING_TYPES.includes(u.trainedAt as BuildingType),
+);
+
+/** Generate random starter kit choices — each has a random building + a random merc that differs from the building's unit */
+export function generateStarterKits(count: number): StarterKit[] {
+  const pool = [...STARTER_BUILDING_TYPES];
+  shuffle(pool);
+  const picked = pool.slice(0, count);
+
+  return picked.map((buildingType) => {
+    const buildingDef = BUILDING_DEFS[buildingType];
+    // Pick a random merc that is NOT the unit this building spawns
+    const eligible = MERC_UNITS.filter((u) => u.trainedAt !== buildingType);
+    const mercDef = pick(eligible);
+
+    return {
+      id: `starter_${buildingType}_${mercDef.id}`,
+      name: `${buildingDef.name} + ${mercDef.name}`,
+      description: `Start with a ${mercDef.name} mercenary. ${buildingDef.name} auto-spawns units each wave.`,
+      unitDefId: mercDef.id,
+      buildingType,
+      startingResources: {},
+    };
+  });
+}

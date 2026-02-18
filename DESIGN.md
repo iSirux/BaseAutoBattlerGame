@@ -223,19 +223,37 @@ Higher waves shift the probability curve toward rarer cards.
 
 | Unit | Role | HP | ATK | Cooldown | Move | Range | Lives | Unlock |
 |------|------|----|-----|----------|------|-------|-------|--------|
-| **Swordsman** | Melee | 12 | 5 | 1.2s | 2.5/s | 1 | 2 | Barracks lv2 |
-| **Spearman** | Tank | 16 | 3 | 1.8s | 1.5/s | 2 | 2 | Guardhouse lv2 |
-| **Berserker** | Glass Cannon | 8 | 8 | 0.6s | 3.0/s | 1 | 1 | Barracks lv3 |
-| **Bear** | Animal | 20 | 6 | 1.3s | 2.0/s | 1 | 2 | Kennel lv2 |
+| **Swordsman** | Melee | 12 | 5 | 1.2s | 2.5/s | 1 | 1 | Barracks lv2 |
+| **Champion** | Melee | 16 | 7 | 1.0s | 2.5/s | 1 | 1 | Barracks lv3 |
+| **Crossbowman** | Ranged | 8 | 5 | 1.1s | 2.0/s | 3 | 1 | Archery Range lv2 |
+| **Sharpshooter** | Ranged | 10 | 7 | 1.0s | 2.0/s | 3 | 1 | Archery Range lv3 |
+| **Sentinel** | Tank | 20 | 5 | 1.8s | 1.5/s | 1 | 1 | Guardhouse lv2 |
+| **Warden** | Tank | 28 | 6 | 1.8s | 1.5/s | 1 | 1 | Guardhouse lv3 |
+| **Dire Wolf** | Animal | 12 | 4 | 0.6s | 4.0/s | 1 | 1 | Kennel lv2 |
+| **Alpha Wolf** | Animal | 16 | 5 | 0.5s | 4.5/s | 1 | 1 | Kennel lv3 |
+
+### Building Niches (Rock-Paper-Scissors)
+
+Each military building has a distinct combat identity that deepens at each tier. Units within a track keep the same range, speed profile, and role — higher tiers are strictly better versions of the same archetype.
+
+- **Barracks (Offensive Melee — Iron)** — balanced HP/ATK, moderate speed. The "quality over quantity" track. (Militia → Swordsman → Champion)
+- **Archery Range (Ranged DPS — Wood)** — squishy, high sustained damage from distance. (Archer → Crossbowman → Sharpshooter)
+- **Guardhouse (Defensive Tank — Stone)** — high HP, high armor, slow, low DPS. The immovable wall. (Guard → Sentinel → Warden)
+- **Kennel (Fast Swarm — Wood)** — fragile, fast speed, fast cooldown. Overwhelm and flank. (Wolf → Dire Wolf → Alpha Wolf)
+
+Counter triangle:
+- **Fast (Kennel)** beats **Ranged (Archery)** — closes distance, shreds squishy ranged
+- **Ranged (Archery)** beats **Tank (Guardhouse)** — kites slow tanks, sustained DPS from safety
+- **Tank (Guardhouse)** beats **Fast (Kennel)** — animals die on the armor wall
+- **Melee (Barracks)** — jack-of-all-trades, no hard counter or weakness
 
 ### Unit Types / Niches
 
 - **Fodder** — cheap, absorbs hits and buys time (Peasant)
-- **Melee fighter** — standard frontline, balanced stats (Militia, Swordsman)
-- **Ranged** — high attack range, stays back and fires across the battlefield (Archer)
-- **Tank** — high HP, holds ground and creates space (Guard, Spearman)
-- **Glass Cannon** — high damage, low survivability (Berserker)
-- **Animals** — can't equip weapons, fast movers that can flank (Wolf, Bear)
+- **Melee** — offensive frontline, balanced stats scaling to elite (Militia, Swordsman, Champion)
+- **Ranged** — high attack range, stays back and fires across the battlefield (Archer, Crossbowman, Sharpshooter)
+- **Tank** — high HP + armor, holds ground and creates space (Guard, Sentinel, Warden)
+- **Animal** — can't equip weapons, fast movers that swarm and flank (Wolf, Dire Wolf, Alpha Wolf)
 
 ### Abilities
 
@@ -282,10 +300,10 @@ Higher waves shift the probability curve toward rarer cards.
 | Building | Lv1 Unit | Lv2 Unit | Lv3 Unit |
 |----------|----------|----------|----------|
 | Camp | Peasant | — | — |
-| Barracks | Militia | Swordsman | Berserker |
-| Archery Range | Archer | — | — |
-| Guardhouse | Guard | Spearman | — |
-| Kennel | Wolf ×2 | Bear | — |
+| Barracks | Militia | Swordsman | Champion |
+| Archery Range | Archer | Crossbowman | Sharpshooter |
+| Guardhouse | Guard | Sentinel | Warden |
+| Kennel | Wolf | Dire Wolf | Alpha Wolf |
 
 ---
 

@@ -500,7 +500,7 @@
     #tech-shop.visible { display: flex; }
     #tech-shop-modal {
       background: rgba(30,20,10,0.95); border: 2px solid rgba(200,160,60,0.5);
-      border-radius: 12px; padding: 32px 36px; min-width: 400px; max-width: 620px; width: 90vw;
+      border-radius: 12px; padding: 32px 36px; min-width: 400px; max-width: 900px; width: 95vw;
     }
     .tech-shop-title { font-size: 28px; font-weight: bold; color: #c8a03c; text-align: center; margin-bottom: 6px; }
     .tech-shop-bp { text-align: center; font-size: 17px; color: #e8c840; margin-bottom: 16px; }
@@ -531,13 +531,13 @@
     /* ── Card Selection ── */
     #card-selection {
       display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0,0,0,0.75); z-index: 100; justify-content: center; align-items: center;
+      background: rgba(0,0,0,0.82); z-index: 100; justify-content: center; align-items: center;
     }
     #card-selection.visible { display: flex; }
     #card-selection-modal {
-      background: rgba(30,20,10,0.95); border: 2px solid rgba(200,160,60,0.5);
-      border-radius: 12px; padding: 32px 36px; min-width: 400px; max-width: 750px; width: 90vw;
-      text-align: center;
+      background: rgba(22,15,8,0.97); border: 2px solid rgba(200,160,60,0.55);
+      border-radius: 16px; padding: 36px 40px; min-width: 400px; max-width: 900px; width: 92vw;
+      text-align: center; box-shadow: 0 8px 48px rgba(0,0,0,0.7);
     }
     .card-selection-title { font-size: 28px; font-weight: bold; color: #c8a03c; margin-bottom: 12px; }
     .card-selection-subtitle { font-size: 18px; color: #c8a03c; margin-bottom: 16px; opacity: 0.8; }
@@ -545,24 +545,84 @@
       display: flex; flex-direction: column; gap: 2px;
       font-size: 16px; color: rgba(240,230,211,0.85); margin-bottom: 16px; line-height: 1.6;
     }
-    .card-choices { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+    .card-choices { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; }
+    @keyframes cardEntrance {
+      from { opacity: 0; transform: translateY(24px) scale(0.95); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes legendaryShimmer {
+      0%   { background-position: -200% center; }
+      100% { background-position:  200% center; }
+    }
     .reward-card {
       background: rgba(30,25,15,0.9); border: 2px solid rgba(200,160,60,0.3);
-      border-radius: 10px; padding: 20px 18px; width: 200px; cursor: pointer;
-      transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s; text-align: center;
+      border-radius: 12px; padding: 24px 20px; width: 240px; cursor: pointer;
+      transition: transform 0.18s, border-color 0.18s, box-shadow 0.18s;
+      text-align: center; position: relative; overflow: hidden;
+      animation: cardEntrance 0.35s ease both;
     }
-    .reward-card:hover { transform: translateY(-4px); border-color: #c8a03c; box-shadow: 0 4px 16px rgba(200,160,60,0.3); }
-    .reward-card-name { font-weight: bold; font-size: 17px; margin-bottom: 8px; }
-    .reward-card-desc { font-size: 14px; color: rgba(240,230,211,0.7); margin-bottom: 8px; line-height: 1.5; }
-    .reward-card-type { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: rgba(240,230,211,0.4); }
-    .rarity-common { border-color: rgba(180,180,180,0.4); }
-    .rarity-common .reward-card-name { color: #c0c0c0; }
-    .rarity-rare { border-color: rgba(80,130,220,0.5); }
-    .rarity-rare .reward-card-name { color: #6090e0; }
-    .rarity-epic { border-color: rgba(160,60,200,0.5); }
-    .rarity-epic .reward-card-name { color: #b060e0; }
-    .rarity-legendary { border-color: rgba(220,180,40,0.6); }
-    .rarity-legendary .reward-card-name { color: #e8c840; }
+    .reward-card:hover { transform: translateY(-6px) scale(1.03); }
+    .reward-card-name { font-weight: bold; font-size: 20px; margin-bottom: 6px; }
+    .reward-card-rarity {
+      display: inline-block; font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 1.5px;
+      padding: 2px 10px; border-radius: 20px; margin-bottom: 10px;
+    }
+    .reward-card-desc { font-size: 15px; color: rgba(240,230,211,0.75); margin-bottom: 10px; line-height: 1.55; }
+    .reward-card-type { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: rgba(240,230,211,0.35); }
+
+    /* Common */
+    .rarity-common {
+      border-color: rgba(180,180,180,0.45);
+      background: linear-gradient(160deg, rgba(50,50,50,0.6) 0%, rgba(30,25,15,0.9) 60%);
+    }
+    .rarity-common:hover { border-color: #b0b0b0; box-shadow: 0 6px 22px rgba(180,180,180,0.25); }
+    .rarity-common .reward-card-name { color: #c8c8c8; }
+    .rarity-common .reward-card-rarity { background: rgba(180,180,180,0.15); color: #b0b0b0; border: 1px solid rgba(180,180,180,0.3); }
+
+    /* Rare */
+    .rarity-rare {
+      border-color: rgba(80,130,220,0.55);
+      background: linear-gradient(160deg, rgba(20,35,80,0.65) 0%, rgba(30,25,15,0.9) 60%);
+    }
+    .rarity-rare:hover { border-color: #6090e0; box-shadow: 0 6px 28px rgba(80,130,220,0.4); }
+    .rarity-rare .reward-card-name { color: #7aa8f0; }
+    .rarity-rare .reward-card-rarity { background: rgba(80,130,220,0.18); color: #7aa8f0; border: 1px solid rgba(80,130,220,0.4); }
+
+    /* Epic */
+    .rarity-epic {
+      border-color: rgba(160,60,200,0.55);
+      background: linear-gradient(160deg, rgba(50,15,75,0.65) 0%, rgba(30,25,15,0.9) 60%);
+    }
+    .rarity-epic:hover { border-color: #c070f0; box-shadow: 0 6px 28px rgba(160,60,200,0.45); }
+    .rarity-epic .reward-card-name { color: #c070f0; }
+    .rarity-epic .reward-card-rarity { background: rgba(160,60,200,0.18); color: #c070f0; border: 1px solid rgba(160,60,200,0.4); }
+
+    /* Legendary */
+    .rarity-legendary {
+      border-color: rgba(220,180,40,0.65);
+      background: linear-gradient(160deg, rgba(70,45,5,0.7) 0%, rgba(30,25,15,0.9) 60%);
+    }
+    .rarity-legendary:hover { border-color: #f0d050; box-shadow: 0 6px 32px rgba(220,180,40,0.55); }
+    .rarity-legendary .reward-card-name { color: #f0d050; }
+    .rarity-legendary .reward-card-rarity { background: rgba(220,180,40,0.18); color: #f0d050; border: 1px solid rgba(220,180,40,0.45); }
+    .rarity-legendary::after {
+      content: ''; position: absolute; inset: 0; pointer-events: none;
+      background: linear-gradient(105deg, transparent 40%, rgba(255,220,80,0.12) 50%, transparent 60%);
+      background-size: 200% 100%;
+      animation: legendaryShimmer 2.4s linear infinite;
+    }
+
+    /* ── Buff Banner ── */
+    #buff-banner { display: none; position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 200; background: rgba(30,20,10,0.95); border: 2px solid rgba(200,160,60,0.7); border-radius: 8px; padding: 10px 20px; color: #f0e0a0; font-size: 15px; font-weight: bold; text-align: center; pointer-events: none; box-shadow: 0 4px 20px rgba(0,0,0,0.6); }
+    #buff-banner.visible { display: block; }
+
+    /* ── Picker UI (for card secondary choices) ── */
+    .picker-list { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; margin-top: 12px; }
+    .picker-item { padding: 10px 14px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+    .picker-item:hover { background: rgba(255,255,255,0.14); border-color: rgba(200,160,60,0.6); }
+    .picker-name { font-weight: bold; color: #f0e0a0; }
+    .picker-detail { color: #aaa; font-size: 0.85em; }
 
     /* ── Starter Kit Selection ── */
     #starter-select {
@@ -778,6 +838,79 @@
       .build-bar-cost { font-size: 7px; }
     }
 
+    /* ── Tech Tree Layout ── */
+    .tech-tree-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+    .tech-branch-col {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .tech-branch-title {
+      font-size: 14px;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      text-align: center;
+      padding: 4px 0 6px;
+      border-bottom: 1px solid rgba(200, 160, 60, 0.3);
+      margin-bottom: 4px;
+    }
+    .tech-branch-wood .tech-branch-title { color: #c49a3c; }
+    .tech-branch-stone .tech-branch-title { color: #b0b0b0; }
+    .tech-branch-iron .tech-branch-title { color: #7a8b9e; }
+    .tech-branch-tactical .tech-branch-title { color: #e8c840; }
+    .tech-node {
+      background: rgba(200,160,60,0.08);
+      border: 1px solid rgba(200,160,60,0.2);
+      border-radius: 6px;
+      padding: 8px 10px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      font-size: 12px;
+    }
+    .tech-node:hover { background: rgba(200,160,60,0.2); border-color: rgba(200,160,60,0.5); }
+    .tech-node.purchased { background: rgba(80,180,80,0.15); border-color: rgba(80,180,80,0.4); cursor: default; }
+    .tech-node.locked { opacity: 0.35; cursor: not-allowed; }
+    .tech-node.locked:hover { background: rgba(200,160,60,0.08); border-color: rgba(200,160,60,0.2); }
+    .tech-node-name { font-weight: bold; font-size: 13px; color: #f0e6d3; }
+    .tech-node-desc { font-size: 11px; color: rgba(240,230,211,0.6); margin-top: 2px; }
+    .tech-node-cost { font-size: 11px; color: #e8c840; margin-top: 3px; font-weight: bold; }
+    .tech-node-status { font-size: 10px; margin-top: 2px; }
+    .tech-node-prereq { font-size: 9px; color: rgba(240,230,211,0.4); margin-top: 2px; }
+
+    /* ── Game Over Modal ── */
+    #game-over-modal {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.85); z-index: 300; justify-content: center; align-items: center;
+    }
+    #game-over-modal.visible { display: flex; }
+    #game-over-content {
+      background: rgba(30,10,10,0.97); border: 2px solid rgba(200,60,60,0.6);
+      border-radius: 12px; padding: 48px 56px; text-align: center;
+      min-width: 320px;
+    }
+    #game-over-title {
+      font-size: 48px; font-weight: bold; color: #e06060;
+      letter-spacing: 6px; text-transform: uppercase; margin-bottom: 16px;
+    }
+    #game-over-wave {
+      font-size: 22px; color: #e0d8c0; margin-bottom: 8px;
+    }
+    #game-over-subtitle {
+      font-size: 15px; color: rgba(240,230,211,0.5); margin-bottom: 32px;
+    }
+    #game-over-restart {
+      background: rgba(200,60,60,0.25); border: 1px solid rgba(200,60,60,0.5);
+      color: #f0e6d3; border-radius: 8px; padding: 14px 40px;
+      cursor: pointer; font-size: 18px; font-weight: bold;
+      transition: background 0.15s;
+    }
+    #game-over-restart:hover { background: rgba(200,60,60,0.5); }
+
     /* ── Landscape with short viewport ── */
     @media (max-height: 500px) and (orientation: landscape) {
       #resource-bar { padding: 3px 10px; font-size: 11px; }
@@ -820,6 +953,21 @@
           <span>Iron: <span id="res-iron">0</span></span>
           <span class="res-income" id="res-income-iron"></span>
           <span class="res-delta" id="res-delta-iron"></span>
+        </div>
+        <div class="resource-item refined-resource" id="res-planks-item" style="display:none;" data-tip="Refined wood. Used for advanced building upgrades.">
+          <span class="resource-icon" style="background:#d4a050;"></span>
+          <span>Planks: <span id="res-planks">0</span></span>
+          <span class="res-income" id="res-income-planks"></span>
+        </div>
+        <div class="resource-item refined-resource" id="res-cutstone-item" style="display:none;" data-tip="Refined stone. Produced by upgraded quarries.">
+          <span class="resource-icon" style="background:#c8b896;"></span>
+          <span>Cut Stone: <span id="res-cutstone">0</span></span>
+          <span class="res-income" id="res-income-cutstone"></span>
+        </div>
+        <div class="resource-item refined-resource" id="res-ironbars-item" style="display:none;" data-tip="Smelted iron. Used for iron+ tier equipment.">
+          <span class="resource-icon" style="background:#a0b0c0;"></span>
+          <span>Bars: <span id="res-ironbars">0</span></span>
+          <span class="res-income" id="res-income-ironbars"></span>
         </div>
         <div class="resource-item" data-tip="Battle Points. Earned from waves, spent on tech upgrades.">
           <span class="resource-icon" style="background:#e8c840;"></span>
@@ -869,7 +1017,7 @@
       <!-- Tech Shop Modal -->
       <div id="tech-shop">
         <div id="tech-shop-modal">
-          <div class="tech-shop-title">Tech Shop</div>
+          <div class="tech-shop-title">Tech Tree</div>
           <div class="tech-shop-bp">BP: <span id="ts-bp">0</span></div>
           <div id="tech-shop-items"></div>
           <button class="tech-shop-close" id="tech-shop-close">Close</button>
@@ -898,6 +1046,16 @@
         <div id="starter-select-modal">
           <div class="starter-title">Choose Your Starter Kit</div>
           <div class="starter-choices" id="starter-choices"></div>
+        </div>
+      </div>
+
+      <!-- Game Over Modal -->
+      <div id="game-over-modal">
+        <div id="game-over-content">
+          <div id="game-over-title">DEFEAT</div>
+          <div id="game-over-wave">Reached Wave 1</div>
+          <div id="game-over-subtitle">Your base has fallen.</div>
+          <button id="game-over-restart">Play Again</button>
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 // ── Resource System ──
 
-export type ResourceType = 'wood' | 'stone' | 'iron';
+export type ResourceType = 'wood' | 'stone' | 'iron' | 'planks' | 'cut_stone' | 'iron_bars';
 
 export type Resources = Record<ResourceType, number>;
 
@@ -22,6 +22,7 @@ export interface HexTile {
   terrain: TerrainType;
   deposit: DepositType | null;
   buildingId: string | null;
+  claimed: boolean;
 }
 
 export interface HexGrid {
@@ -40,7 +41,9 @@ export type BuildingType =
   | 'archery_range'
   | 'blacksmith'
   | 'kennel'
-  | 'guardhouse';
+  | 'guardhouse'
+  | 'sawmill'
+  | 'smelter';
 
 export interface BuildingDef {
   type: BuildingType;
@@ -49,8 +52,16 @@ export interface BuildingDef {
   /** Which deposit type this building must be adjacent to (null = no requirement) */
   requiredDeposit: DepositType | null;
   /** Resource this building produces per tick (null = non-resource building) */
-  produces: DepositType | null;
+  produces: ResourceType | null;
   productionRate: number;
+  /** Resources consumed per production tick (for refinement buildings like sawmill/smelter) */
+  consumes?: Partial<Resources>;
+  /** Maximum upgrade level for this building (if different from global default) */
+  maxLevel?: number;
+  /** Description of the building's function */
+  description?: string;
+  /** Passive income granted each build phase (e.g. camp gives free resources) */
+  passiveIncome?: Partial<Resources>;
 }
 
 export interface Building {
@@ -76,6 +87,10 @@ export interface EquipmentDef {
   modifiers: Partial<UnitStats>;
   /** Shields can grant extra lives */
   bonusLives?: number;
+  /** Armor grants bonus HP as % of the unit's base maxHp (e.g. 0.20 = +20%) */
+  hpPercent?: number;
+  /** If true, this equipment is bound to a mercenary unit and cannot be unequipped or recovered on death */
+  isMercBound?: boolean;
 }
 
 // ── Units ──
@@ -87,6 +102,10 @@ export interface UnitStats {
   maxHp: number;
   attack: number;
   cooldown: number;
+  /** Damage reduction per hit (flat). Default 0. */
+  armor: number;
+  /** Chance (0.0–1.0) to reduce incoming damage by 40% (before armor). Default 0. */
+  glancingChance: number;
 }
 
 export interface UnitDef {
@@ -147,6 +166,8 @@ export interface BattleState {
   reinforcementQueue: Unit[];
   /** Enemy units waiting to enter (spawn at enemy front center) */
   enemyReinforcementQueue: Unit[];
+  /** Max active player units on field at once (= initial deployed count) */
+  playerDeploymentSlots: number;
   tick: number;
   result: BattleResult | null;
 }
@@ -211,13 +232,31 @@ export type TechEffect =
   | { type: 'card_rarity_boost'; value: number }
   | { type: 'extra_card_choice'; value: number }
   | { type: 'expand_map' }
-  | { type: 'building_upgrade_unlock'; value: number };
+  | { type: 'building_upgrade_unlock'; value: number }
+  | { type: 'deployment_slot'; value: number }
+  | { type: 'reinforcement_slot'; value: number }
+  | { type: 'special'; id: string };
+
+// ── Tech Tree (branching) ──
+
+export type TechBranch = 'wood' | 'stone' | 'iron' | 'tactical';
+
+export interface TechNode {
+  id: string;
+  name: string;
+  description: string;
+  branch: TechBranch;
+  cost: number;
+  prereqIds: string[];
+  effect: TechEffect;
+}
 
 // ── Cards / Rewards ──
 
 export type CardRarity = 'common' | 'rare' | 'epic' | 'legendary';
 
-export type CardType = 'resources' | 'unit' | 'bp_bonus' | 'equipment' | 'relic';
+export type CardType = 'resources' | 'unit' | 'bp_bonus' | 'equipment' | 'relic'
+  | 'stat_buff' | 'building_upgrade' | 'tech_node';
 
 export interface Card {
   id: string;
@@ -233,7 +272,11 @@ export type CardEffect =
   | { type: 'grant_unit'; unitDefId: string }
   | { type: 'grant_bp'; amount: number }
   | { type: 'grant_equipment'; equipmentId: string }
-  | { type: 'grant_relic'; relicId: string };
+  | { type: 'grant_relic'; relicId: string }
+  | { type: 'free_building_upgrade' }
+  | { type: 'free_tech_node' }
+  | { type: 'stat_buff_single_unit'; stat: 'attack' | 'maxHp' | 'glancingChance'; value: number }
+  | { type: 'stat_buff_role'; role: UnitRole; stat: 'attack' | 'maxHp'; value: number };
 
 // ── Relics ──
 
@@ -260,7 +303,7 @@ export interface StarterKit {
   description: string;
   unitDefId: string;
   buildingType: BuildingType;
-  startingResources: Resources;
+  startingResources: Partial<Resources>;
 }
 
 // ── Input State ──
@@ -291,6 +334,8 @@ export interface GameState {
 
   grid: HexGrid;
   buildings: Map<string, Building>;
+  /** Set of hex keys ("q,r,s") for tiles claimed by the player */
+  claimedTiles: Set<string>;
 
   /** All units the player owns (alive) */
   roster: Map<string, Unit>;
@@ -313,7 +358,7 @@ export interface GameState {
   cardChoices: Card[] | null;
 
   /** Tech shop offerings (refreshed each reward phase) */
-  techShop: TechUpgrade[] | null;
+  techShop: TechNode[] | null;
 
   /** Consecutive losses (for pity system) */
   lossStreak: number;
@@ -327,6 +372,8 @@ export interface GameState {
   gatherRateMultiplier: number;
   buildingCostMultiplier: number;
   battleWidthBonus: number;
+  /** Max units that can be deployed on the field at battle start */
+  deploymentSlots: number;
   reinforcementQueueSize: number;
   cardRarityBoost: number;
   extraCardChoices: number;
@@ -341,6 +388,12 @@ export interface GameState {
   /** Upcoming wave definition (for wave preview) */
   currentWaveDef: WaveDef | null;
 
-  /** Remembered deployment positions by roster-slot index (persists between waves) */
-  savedDeployment: HexCoord[];
+  /** Remembered deployment positions keyed by unit ID (persists between waves) */
+  savedDeployment: Map<string, HexCoord>;
+
+  /** When true, the next tech purchase costs 0 BP (from Breakthrough card) */
+  freeTechPending: boolean;
+
+  /** Pending single-unit stat buff waiting for unit selection */
+  pendingStatBuff: { stat: 'attack' | 'maxHp' | 'glancingChance'; value: number } | null;
 }
