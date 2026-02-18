@@ -175,27 +175,24 @@ async function main() {
     renderer.renderGrid(state);
     hud.update(state);
 
-    // 6. Show battle results modal -> card selection -> advanceToBuild
-    hud.showBattleResults(result, unitsLost, () => {
-      if (state.phase === 'game_over') {
-        battleInProgress = false;
-        return;
+    // 6. Show combined battle results + card selection -> advanceToBuild
+    if ((state.phase as string) === 'game_over') {
+      battleInProgress = false;
+      return;
+    }
+
+    hud.showCardSelection(state, async () => {
+      advanceToBuild(state);
+      renderer.renderGrid(state);
+      hud.update(state);
+
+      // 7. Show new wave preview, pan back to base
+      if (state.currentWaveDef) {
+        renderer.arena.showWavePreview(state.currentWaveDef, state);
       }
-
-      // Show card selection
-      hud.showCardSelection(state, async () => {
-        advanceToBuild(state);
-        renderer.renderGrid(state);
-        hud.update(state);
-
-        // 7. Show new wave preview, pan back to base
-        if (state.currentWaveDef) {
-          renderer.arena.showWavePreview(state.currentWaveDef, state);
-        }
-        await renderer.panToBase();
-        battleInProgress = false;
-      });
-    });
+      await renderer.panToBase();
+      battleInProgress = false;
+    }, result, unitsLost);
   });
 
   // Main frame loop

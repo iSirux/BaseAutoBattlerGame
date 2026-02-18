@@ -85,13 +85,19 @@ export function createBattleState(
     enemyRangedSlots[i] = enemyRanged[i];
   }
 
+  const reinforcementQueue = [
+    ...playerFrontline.slice(battleWidth),
+    ...reinforcements,
+  ];
+
+  // Pre-fill empty frontline slots from the reinforcement queue
+  fillFrontline(frontline, reinforcementQueue, battleWidth);
+  fillFrontline(enemyFrontline, enemyReinforcements, enemyBattleWidth);
+
   return {
     frontline,
     ranged: rangedSlots,
-    reinforcementQueue: [
-      ...playerFrontline.slice(battleWidth),
-      ...reinforcements,
-    ],
+    reinforcementQueue,
     enemyFrontline,
     enemyRanged: enemyRangedSlots,
     battleWidth,

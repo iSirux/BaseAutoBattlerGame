@@ -7,7 +7,7 @@ export const EQUIPMENT_DEFS: Record<string, EquipmentDef> = {
     name: 'Rock',
     slot: 'weapon',
     tier: 'crude',
-    craftCost: { iron: 0 },
+    craftCost: { iron: 1 },
     modifiers: { attack: 1 },
   },
   club: {

@@ -105,4 +105,22 @@ export const TECH_UPGRADES: TechUpgrade[] = [
     maxTier: 1,
     effect: { type: 'extra_card_choice', value: 1 },
   },
+  {
+    id: 'building_upgrade_lv2',
+    name: 'Advanced Construction',
+    description: 'Allows upgrading buildings to level 2. Military buildings unlock new units.',
+    category: 'utility',
+    baseCost: 5,
+    maxTier: 1,
+    effect: { type: 'building_upgrade_unlock', value: 2 },
+  },
+  {
+    id: 'building_upgrade_lv3',
+    name: 'Master Construction',
+    description: 'Allows upgrading buildings to level 3. Military buildings unlock elite units.',
+    category: 'utility',
+    baseCost: 5,
+    maxTier: 1,
+    effect: { type: 'building_upgrade_unlock', value: 3 },
+  },
 ];

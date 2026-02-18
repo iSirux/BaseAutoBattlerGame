@@ -21,9 +21,9 @@ export function generateGrid(radius: number, seed: number): HexGrid {
   }
 
   // Place resource deposits in clusters
-  placeDeposits(tiles, allCoords, 'wood', 3, 2, rng);
-  placeDeposits(tiles, allCoords, 'stone', 2, 2, rng);
-  placeDeposits(tiles, allCoords, 'iron', 2, 1, rng);
+  placeDeposits(tiles, allCoords, 'wood', 2, 2, rng);
+  placeDeposits(tiles, allCoords, 'stone', 1, 2, rng);
+  placeDeposits(tiles, allCoords, 'iron', 1, 1, rng);
 
   // Keep center area clear for base
   const centerCoords = hexRange(hex(0, 0), 1);
@@ -35,8 +35,8 @@ export function generateGrid(radius: number, seed: number): HexGrid {
     }
   }
 
-  // Guarantee iron deposit within radius 3
-  const nearbyCoords = hexRange(hex(0, 0), 3);
+  // Guarantee iron deposit within radius 2
+  const nearbyCoords = hexRange(hex(0, 0), 2);
   const hasIron = nearbyCoords.some(c => {
     const t = tiles.get(hexKey(c));
     return t?.deposit === 'iron';
@@ -45,7 +45,7 @@ export function generateGrid(radius: number, seed: number): HexGrid {
     // Find a valid non-center tile to place iron
     const candidates = allCoords.filter(c => {
       const dist = hexDistance(c, hex(0, 0));
-      if (dist < 2 || dist > 3) return false;
+      if (dist < 2) return false;
       const t = tiles.get(hexKey(c));
       return t && !t.deposit;
     });

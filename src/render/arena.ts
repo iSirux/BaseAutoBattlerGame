@@ -10,8 +10,8 @@ import { SFX } from '@/audio/sfx';
 const SLOT_SPACING = 50;
 const FRONTLINE_GAP = 140;
 const RANGED_OFFSET = 60;
-const REINFORCE_OFFSET = 100;
-const BENCH_OFFSET = 160;
+const REINFORCE_OFFSET = 140;
+const BENCH_OFFSET = 210;
 const UNIT_RADIUS = 16;
 const BOSS_RADIUS = 24;
 const HP_BAR_WIDTH = 30;
@@ -62,6 +62,8 @@ interface UnitSprite {
   hpBg: Graphics;
   nameLabel: Text;
   livesDots: Graphics;
+  cooldownArc: Graphics;
+  cooldownTimer: number;
   unit: ArenaUnit;
   currentHp: number;
   baseX: number;
@@ -311,14 +313,6 @@ export class ArenaRenderer {
       this.playerFrontlineIds[i] = activeMelee[i].id;
     }
 
-    // Overflow melee → extra rows below frontline
-    for (let i = frontlineCount; i < activeMelee.length; i++) {
-      const col = (i - frontlineCount) % this.battleWidth;
-      const row = Math.floor((i - frontlineCount) / this.battleWidth);
-      const pos = this.slotPosition(col, this.battleWidth, 'player', 'frontline');
-      this.createUnitSprite(activeMelee[i], pos.x, pos.y + (row + 1) * 35, 0.6, true);
-    }
-
     // Active ranged → ranged row (same slot count as frontline)
     this.playerRangedIds = new Array(this.battleWidth).fill(null);
     for (let i = 0; i < Math.min(activeRanged.length, this.battleWidth); i++) {
@@ -327,18 +321,26 @@ export class ArenaRenderer {
       this.playerRangedIds[i] = activeRanged[i].id;
     }
 
-    // Reinforcements
-    for (let i = 0; i < state.reinforcements.length; i++) {
-      const unitId = state.reinforcements[i];
+    // Overflow melee (beyond battleWidth) become reinforcements in battle,
+    // so show them in the reinforcement section together with explicit reinforcements
+    const overflowMelee: ArenaUnit[] = activeMelee.slice(frontlineCount);
+
+    // Build combined reinforcement list: overflow melee first, then explicit reinforcements
+    // (matches battle.ts reinforcementQueue order)
+    const allReinforcements: ArenaUnit[] = [...overflowMelee];
+    for (const unitId of state.reinforcements) {
       const unit = state.roster.get(unitId);
       if (!unit) continue;
       const def = ALL_UNIT_DEFS[unit.defId];
       if (!def) continue;
-      const arenaUnit = this.unitToPreviewArenaUnit(unit, def, unitId);
+      allReinforcements.push(this.unitToPreviewArenaUnit(unit, def, unitId));
+    }
+
+    for (let i = 0; i < allReinforcements.length; i++) {
       const col = i % this.battleWidth;
       const row = Math.floor(i / this.battleWidth);
       const pos = this.slotPosition(col, this.battleWidth, 'player', 'reinforcement');
-      this.createUnitSprite(arenaUnit, pos.x, pos.y + row * 35, 0.5, true);
+      this.createUnitSprite(allReinforcements[i], pos.x, pos.y + row * 35, 0.5, true);
     }
 
     // Bench
@@ -356,9 +358,10 @@ export class ArenaRenderer {
     }
 
     // Player count label
-    const totalPlayer = state.battleRoster.length + state.reinforcements.length + state.bench.length;
+    const activeCount = frontlineCount + activeRanged.length;
+    const reinforceCount = allReinforcements.length;
     const playerCountLabel = new Text({
-      text: `${state.battleRoster.length} active, ${state.reinforcements.length} reinforcements, ${state.bench.length} bench`,
+      text: `${activeCount} active, ${reinforceCount} reinforcements, ${state.bench.length} bench`,
       style: { fontSize: 10, fill: 0x6688aa, fontFamily: 'Segoe UI, system-ui, sans-serif' },
       resolution: TEXT_RESOLUTION,
     });
@@ -429,15 +432,15 @@ export class ArenaRenderer {
     // Midpoints between adjacent rows
     const separatorYs = [
       // Enemy: between frontline (0) and ranged (-60)
-      -30,
-      // Enemy: between ranged (-60) and reserves (-100)
-      -80,
-      // Player: between frontline (140) and ranged (200)
-      FRONTLINE_GAP + 30,
-      // Player: between ranged (200) and reinforcements (240 = 100)
-      FRONTLINE_GAP + 80,
-      // Player: between reinforcements (240) and bench (300 = 160)
-      FRONTLINE_GAP + 130,
+      -RANGED_OFFSET / 2,
+      // Enemy: between ranged and reserves
+      -(RANGED_OFFSET + REINFORCE_OFFSET) / 2,
+      // Player: between frontline and ranged
+      FRONTLINE_GAP + RANGED_OFFSET / 2,
+      // Player: between ranged and reinforcements
+      FRONTLINE_GAP + (RANGED_OFFSET + REINFORCE_OFFSET) / 2,
+      // Player: between reinforcements and bench
+      FRONTLINE_GAP + (REINFORCE_OFFSET + BENCH_OFFSET) / 2,
     ];
 
     for (const y of separatorYs) {
@@ -659,13 +662,18 @@ export class ArenaRenderer {
   // ── Tick Animation ──
 
   async applyTick(events: BattleEvent[], _speed: number): Promise<void> {
+    // Track attackers this tick to reset their cooldown timers
+    const attackerIds = new Set<string>();
+
     // Phase 1: All attacks animate concurrently
     const attackAnims: Promise<void>[] = [];
     for (const event of events) {
       if (event.type === 'melee_attack') {
         attackAnims.push(this.animateMeleeAttack(event.attackerId, event.targetId, event.damage));
+        attackerIds.add(event.attackerId);
       } else if (event.type === 'ranged_attack') {
         attackAnims.push(this.animateRangedAttack(event.attackerId, event.targetId, event.damage));
+        attackerIds.add(event.attackerId);
       }
     }
     if (attackAnims.length > 0) await Promise.all(attackAnims);
@@ -674,7 +682,11 @@ export class ArenaRenderer {
     const deathAnims: Promise<void>[] = [];
     for (const event of events) {
       if (event.type === 'unit_died') {
-        deathAnims.push(this.animateDeath(event.unitId));
+        if (event.livesRemaining > 0) {
+          deathAnims.push(this.animateLifeLost(event.unitId));
+        } else {
+          deathAnims.push(this.animateDeath(event.unitId));
+        }
       }
     }
     if (deathAnims.length > 0) await Promise.all(deathAnims);
@@ -687,6 +699,16 @@ export class ArenaRenderer {
       }
     }
     if (reinforceAnims.length > 0) await Promise.all(reinforceAnims);
+
+    // Phase 4: Update cooldown arcs for all living sprites
+    for (const sprite of this.unitSprites.values()) {
+      if (attackerIds.has(sprite.unit.id)) {
+        sprite.cooldownTimer = 0;
+      } else {
+        sprite.cooldownTimer += 0.1; // TICK_DELTA
+      }
+      this.drawCooldownArc(sprite);
+    }
   }
 
   /** Apply tick events instantly (for skip) */
@@ -705,8 +727,17 @@ export class ArenaRenderer {
         case 'unit_died': {
           const sprite = this.unitSprites.get(event.unitId);
           if (sprite) {
-            sprite.container.visible = false;
-            this.unitSprites.delete(event.unitId);
+            if (event.livesRemaining > 0) {
+              // Life lost but unit survives — reset HP bar and update lives dots
+              sprite.currentHp = sprite.unit.maxHp;
+              sprite.unit.lives = event.livesRemaining;
+              this.updateHpBar(sprite);
+              const radius = sprite.unit.isBoss ? BOSS_RADIUS : UNIT_RADIUS;
+              this.drawLivesDots(sprite.livesDots, event.livesRemaining, sprite.unit.maxLives, radius);
+            } else {
+              sprite.container.visible = false;
+              this.unitSprites.delete(event.unitId);
+            }
           }
           break;
         }
@@ -830,6 +861,26 @@ export class ArenaRenderer {
 
     sprite.container.visible = false;
     this.unitSprites.delete(unitId);
+  }
+
+  private async animateLifeLost(unitId: string): Promise<void> {
+    const sprite = this.unitSprites.get(unitId);
+    if (!sprite) return;
+
+    // Flash red/white to indicate life lost
+    const steps = 6;
+    for (let i = 0; i < steps; i++) {
+      sprite.container.alpha = i % 2 === 0 ? 0.2 : 1;
+      await this.wait(50);
+    }
+    sprite.container.alpha = 1;
+
+    // Update lives and reset HP
+    sprite.unit.lives--;
+    sprite.currentHp = sprite.unit.maxHp;
+    this.updateHpBar(sprite);
+    const radius = sprite.unit.isBoss ? BOSS_RADIUS : UNIT_RADIUS;
+    this.drawLivesDots(sprite.livesDots, sprite.unit.lives, sprite.unit.maxLives, radius);
   }
 
   private async animateReinforcement(unitId: string, side: 'player' | 'enemy', slotIndex: number): Promise<void> {
@@ -977,6 +1028,10 @@ export class ArenaRenderer {
     nameLabel.y = -radius - 8;
     container.addChild(nameLabel);
 
+    // Cooldown arc (ring around unit body, behind HP bar)
+    const cooldownArc = new Graphics();
+    container.addChild(cooldownArc);
+
     // HP bar background
     const hpBg = new Graphics();
     hpBg.roundRect(-HP_BAR_WIDTH / 2, radius + 4, HP_BAR_WIDTH, HP_BAR_HEIGHT, 2);
@@ -1015,6 +1070,8 @@ export class ArenaRenderer {
       hpBg,
       nameLabel,
       livesDots,
+      cooldownArc,
+      cooldownTimer: 0,
       unit,
       currentHp: unit.stats.hp,
       baseX: x,
@@ -1067,6 +1124,28 @@ export class ArenaRenderer {
         gfx.stroke({ color: 0x666666, width: 1 });
       }
     }
+  }
+
+  private drawCooldownArc(sprite: UnitSprite): void {
+    const gfx = sprite.cooldownArc;
+    gfx.clear();
+    const cd = sprite.unit.stats.cooldown;
+    if (cd <= 0) return;
+    const pct = Math.min(1, sprite.cooldownTimer / cd);
+    if (pct <= 0) return;
+    const radius = (sprite.unit.isBoss ? BOSS_RADIUS : UNIT_RADIUS) + 3;
+    // Draw arc as individual line segments to avoid Pixi v8 arc() issues
+    const startAngle = -Math.PI / 2;
+    const sweep = Math.PI * 2 * pct;
+    const segments = Math.max(8, Math.floor(sweep * 12));
+    const step = sweep / segments;
+    for (let i = 0; i < segments; i++) {
+      const a1 = startAngle + step * i;
+      const a2 = startAngle + step * (i + 1);
+      gfx.moveTo(Math.cos(a1) * radius, Math.sin(a1) * radius);
+      gfx.lineTo(Math.cos(a2) * radius, Math.sin(a2) * radius);
+    }
+    gfx.stroke({ color: 0xffffff, width: 2.5, alpha: 0.35 });
   }
 
   private updateHpBar(sprite: UnitSprite): void {

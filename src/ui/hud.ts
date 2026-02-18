@@ -273,8 +273,9 @@ export class HUD {
     html += `</div>`;
 
     // Reinforcements
+    const reinforceFull = state.reinforcements.length >= state.reinforcementQueueSize;
     html += `<div class="roster-section">`;
-    html += `<div class="roster-section-title">Reinforcements (${state.reinforcements.length}/${state.reinforcementQueueSize})</div>`;
+    html += `<div class="roster-section-title">Reinforcements (${state.reinforcements.length}/${state.reinforcementQueueSize})${reinforceFull ? ' <span style="color:#e08080;">(Full)</span>' : ''}</div>`;
     if (state.reinforcements.length === 0) {
       html += `<div class="roster-empty">Empty</div>`;
     }
@@ -372,7 +373,11 @@ export class HUD {
     html += `</div>`;
     html += `<div class="roster-zone-btns">`;
     if (zone !== 'active') html += `<button class="zone-btn" data-unit-id="${id}" data-zone="active" title="Move to Active">A</button>`;
-    if (zone !== 'reinforcement') html += `<button class="zone-btn" data-unit-id="${id}" data-zone="reinforcement" title="Move to Reinforcements">R</button>`;
+    if (zone !== 'reinforcement') {
+      const reinforceFull = state.reinforcements.length >= state.reinforcementQueueSize;
+      const reinforceDisabled = reinforceFull ? ' disabled style="opacity:0.3;cursor:not-allowed;"' : '';
+      html += `<button class="zone-btn"${reinforceDisabled} data-unit-id="${id}" data-zone="reinforcement" title="${reinforceFull ? 'Reinforcements Full' : 'Move to Reinforcements'}">R</button>`;
+    }
     if (zone !== 'bench') html += `<button class="zone-btn" data-unit-id="${id}" data-zone="bench" title="Move to Bench">B</button>`;
     html += `<button class="sell-btn zone-btn" data-unit-id="${id}" title="Sell Unit" style="color:#e06060;">$</button>`;
     html += `</div></div>`;
@@ -524,11 +529,41 @@ export class HUD {
 
   // ── Card Selection ──
 
-  showCardSelection(state: GameState, onDone: () => void): void {
+  showCardSelection(state: GameState, onDone: () => void, battleResult?: BattleResult, unitsLost?: number): void {
     generateCardChoices(state);
     const overlay = document.getElementById('card-selection')!;
     const container = document.getElementById('card-choices')!;
+    const modal = document.getElementById('card-selection-modal')!;
     overlay.classList.add('visible');
+
+    // Build header with battle results if provided
+    let headerHtml = '';
+    if (battleResult) {
+      const won = battleResult.winner === 'player';
+      if (won) {
+        SFX.victory();
+      } else {
+        SFX.defeat();
+      }
+      const titleColor = won ? '#80e060' : '#e06060';
+      const titleText = won ? 'Victory!' : 'Defeat!';
+      headerHtml += `<div class="card-selection-title" style="color:${titleColor};">${titleText}</div>`;
+      headerHtml += `<div class="battle-results-summary">`;
+      if (!won) {
+        const remaining = battleResult.survivingEnemies.length;
+        const baseDmg = remaining * 5;
+        headerHtml += `<span>Enemies remaining: ${remaining}</span>`;
+        headerHtml += `<span>Base damage: ${baseDmg}</span>`;
+      }
+      headerHtml += `<span>BP earned: ${battleResult.bpEarned}</span>`;
+      if (unitsLost && unitsLost > 0) {
+        headerHtml += `<span>Units lost: ${unitsLost}</span>`;
+      }
+      headerHtml += `</div>`;
+      headerHtml += `<div class="card-selection-subtitle">Choose a Reward</div>`;
+    } else {
+      headerHtml = `<div class="card-selection-title">Choose a Reward</div>`;
+    }
 
     SFX.cardReveal();
 
@@ -538,19 +573,19 @@ export class HUD {
       return;
     }
 
-    let html = '';
+    let cardsHtml = '';
     for (let i = 0; i < state.cardChoices.length; i++) {
       const card = state.cardChoices[i];
-      html += `<div class="reward-card rarity-${card.rarity}" data-card-index="${i}">`;
-      html += `<div class="reward-card-name">${card.name}</div>`;
-      html += `<div class="reward-card-desc">${card.description}</div>`;
-      html += `<div class="reward-card-type">${card.type.replace('_', ' ')}</div>`;
-      html += `</div>`;
+      cardsHtml += `<div class="reward-card rarity-${card.rarity}" data-card-index="${i}">`;
+      cardsHtml += `<div class="reward-card-name">${card.name}</div>`;
+      cardsHtml += `<div class="reward-card-desc">${card.description}</div>`;
+      cardsHtml += `<div class="reward-card-type">${card.type.replace('_', ' ')}</div>`;
+      cardsHtml += `</div>`;
     }
 
-    container.innerHTML = html;
+    modal.innerHTML = headerHtml + `<div class="card-choices" id="card-choices">${cardsHtml}</div>`;
 
-    container.querySelectorAll('.reward-card').forEach(card => {
+    modal.querySelectorAll('.reward-card').forEach(card => {
       card.addEventListener('click', () => {
         const idx = parseInt((card as HTMLElement).dataset.cardIndex!);
         selectCard(state, idx);
@@ -751,45 +786,7 @@ export class HUD {
     this.lastSelectedKey = null;
   }
 
-  /** Show the battle results overlay */
-  showBattleResults(result: BattleResult, unitsLost: number, onContinue: () => void): void {
-    const overlay = document.getElementById('battle-results')!;
-    const title = document.getElementById('br-title')!;
-    const body = document.getElementById('br-body')!;
-    const btn = document.getElementById('br-continue')!;
-
-    const won = result.winner === 'player';
-    title.textContent = won ? 'Victory!' : 'Defeat!';
-    title.style.color = won ? '#80e060' : '#e06060';
-
-    let bodyText = '';
-    if (!won) {
-      const remaining = result.survivingEnemies.length;
-      const baseDmg = result.survivingEnemies.reduce((s, e) => s + e.stats.attack, 0);
-      bodyText += `Enemies remaining: ${remaining}\n`;
-      bodyText += `Base damage: ${baseDmg}\n`;
-    }
-    bodyText += `BP earned: ${result.bpEarned}\n`;
-    if (unitsLost > 0) {
-      bodyText += `Units lost: ${unitsLost}`;
-    }
-
-    body.innerHTML = bodyText.split('\n').join('<br>');
-    overlay.classList.add('visible');
-
-    if (won) {
-      SFX.victory();
-    } else {
-      SFX.defeat();
-    }
-
-    const newBtn = btn.cloneNode(true) as HTMLElement;
-    btn.parentNode!.replaceChild(newBtn, btn);
-    newBtn.addEventListener('click', () => {
-      overlay.classList.remove('visible');
-      onContinue();
-    });
-  }
+  // showBattleResults removed — combined into showCardSelection
 
   /** Force panel to rebuild */
   private forceRefreshPanel(state: GameState, coord: HexCoord): void {
@@ -838,13 +835,18 @@ export class HUD {
           }
         }
 
-        // Upgrade button
-        const upgCost = getBuildingUpgradeCost(state, building);
-        const upgAffordable = canAfford(state.resources, upgCost);
-        const upgDisabled = upgAffordable ? '' : ' disabled';
-        html += `<button class="upgrade-bld-btn${upgDisabled}" data-building-id="${building.id}">`;
-        html += `Upgrade to Lv.${building.level + 1} (${this.formatCost(upgCost)})`;
-        html += `</button>`;
+        // Upgrade button (only if tech unlocks the next level and not at max 3)
+        if (building.level < state.buildingUpgradeUnlocked && building.level < 3) {
+          const upgCost = getBuildingUpgradeCost(state, building);
+          const upgAffordable = canAfford(state.resources, upgCost);
+          const upgDisabled = upgAffordable ? '' : ' disabled';
+          html += `<button class="upgrade-bld-btn${upgDisabled}" data-building-id="${building.id}">`;
+          html += `Upgrade to Lv.${building.level + 1} (${this.formatCost(upgCost)})`;
+          html += `</button>`;
+        } else if (building.level < 3) {
+          const nextLevel = building.level + 1;
+          html += `<div style="font-size:10px;color:rgba(240,230,211,0.4);margin:4px 0;">Upgrade to Lv.${nextLevel} requires tech</div>`;
+        }
 
         html += `</div>`;
 
@@ -862,13 +864,19 @@ export class HUD {
           if (alreadyTrained) html += ` <span style="font-size:10px;color:#e08080;">(trained this phase)</span>`;
           html += `</div>`;
           for (const uDef of trainable) {
+            const requiredLevel = uDef.requiredBuildingLevel ?? 1;
+            const meetsLevelReq = uDef.trainedAt === null || building.level >= requiredLevel;
             const affordable = canAfford(state.resources, uDef.trainingCost);
             const needsBuilding = uDef.trainedAt !== null;
             const blocked = needsBuilding && alreadyTrained;
-            const disabledClass = (!affordable || blocked) ? ' disabled' : '';
+            const disabledClass = (!affordable || blocked || !meetsLevelReq) ? ' disabled' : '';
             const costStr = this.formatCost(uDef.trainingCost);
             html += `<button class="train-btn${disabledClass}" data-unit="${uDef.id}" data-building-id="${building.id}">`;
-            html += `<span class="build-name">${uDef.name}</span>`;
+            html += `<span class="build-name">${uDef.name}`;
+            if (!meetsLevelReq) {
+              html += ` <span style="font-size:9px;color:#e08080;">Req. Lv.${requiredLevel}</span>`;
+            }
+            html += `</span>`;
             html += `<span class="build-cost">${costStr}</span>`;
             html += `</button>`;
           }
@@ -1067,7 +1075,7 @@ export class HUD {
     });
 
     document.getElementById('dbg-new-seed')?.addEventListener('click', () => {
-      state.grid = generateGrid(4, Date.now());
+      state.grid = generateGrid(3, Date.now());
       state.buildings.clear();
       for (const tile of state.grid.tiles.values()) {
         tile.buildingId = null;

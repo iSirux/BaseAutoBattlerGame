@@ -103,6 +103,8 @@ export interface UnitDef {
   trainedAt: BuildingType | null;
   /** Whether this is a boss unit */
   isBoss?: boolean;
+  /** Minimum building level required to train this unit (default 1) */
+  requiredBuildingLevel?: number;
 }
 
 export interface Unit {
@@ -182,7 +184,8 @@ export type TechEffect =
   | { type: 'unit_lives'; value: number }
   | { type: 'card_rarity_boost'; value: number }
   | { type: 'extra_card_choice'; value: number }
-  | { type: 'expand_map' };
+  | { type: 'expand_map' }
+  | { type: 'building_upgrade_unlock'; value: number };
 
 // ── Cards / Rewards ──
 
@@ -307,6 +310,9 @@ export interface GameState {
   /** Cumulative stat bonuses applied to new units */
   techStatBonuses: Partial<UnitStats>;
   techLivesBonus: number;
+
+  /** Max building level unlocked (1 = no upgrades, 2+ via tech) */
+  buildingUpgradeUnlocked: number;
 
   /** Upcoming wave definition (for wave preview) */
   currentWaveDef: WaveDef | null;

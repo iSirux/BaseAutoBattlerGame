@@ -20,7 +20,7 @@ export const TIER_ORDER: EquipmentTier[] = ['crude', 'bronze', 'iron', 'steel', 
 
 /** Create the initial game state for a new run */
 export function createGameState(seed: number, starterKit: StarterKit): GameState {
-  const grid = generateGrid(4, seed);
+  const grid = generateGrid(3, seed);
 
   const state: GameState = {
     phase: 'build',
@@ -52,6 +52,7 @@ export function createGameState(seed: number, starterKit: StarterKit): GameState
     extraCardChoices: 0,
     techStatBonuses: {},
     techLivesBonus: 0,
+    buildingUpgradeUnlocked: 1,
     currentWaveDef: null,
   };
 
@@ -191,6 +192,9 @@ export function upgradeBuilding(state: GameState, buildingId: string): boolean {
   const def = BUILDING_DEFS[building.type];
   if (!def) return false;
 
+  // Check tech gating: building level capped by buildingUpgradeUnlocked (max 3)
+  if (building.level >= state.buildingUpgradeUnlocked || building.level >= 3) return false;
+
   // Cost = base cost × 2^(level-1) — so level 1→2 costs 2x base, level 2→3 costs 4x base
   const costMultiplier = Math.pow(2, building.level - 1);
   const upgradeCost: Partial<Resources> = {};
@@ -305,15 +309,19 @@ export function trainUnit(state: GameState, defId: string, buildingId?: string):
 
   // Peasant (trainedAt: null) can be trained without a building
   if (def.trainedAt !== null) {
+    const requiredLevel = def.requiredBuildingLevel ?? 1;
     // Find the specific building instance
     let targetBuilding: Building | undefined;
     if (buildingId) {
       targetBuilding = state.buildings.get(buildingId);
       if (!targetBuilding || targetBuilding.type !== def.trainedAt) return null;
     } else {
-      targetBuilding = [...state.buildings.values()].find((b) => b.type === def.trainedAt && !state.trainedThisPhase.has(b.id));
+      targetBuilding = [...state.buildings.values()].find((b) => b.type === def.trainedAt && !state.trainedThisPhase.has(b.id) && b.level >= requiredLevel);
     }
     if (!targetBuilding) return null;
+
+    // Check building level requirement
+    if (targetBuilding.level < requiredLevel) return null;
 
     // 1-per-building training limit
     if (state.trainedThisPhase.has(targetBuilding.id)) return null;
@@ -474,14 +482,14 @@ export function moveUnitToReinforcements(state: GameState, unitId: string): void
   gameEvents.emit('roster:changed', {});
 }
 
-/** Get the bench capacity: 2 base + 2 per military building */
+/** Get the bench capacity: 2 base + 2×level per military building */
 export function getBenchCapacity(state: GameState): number {
   const militaryTypes = new Set(['barracks', 'archery_range', 'kennel', 'guardhouse']);
-  let count = 0;
+  let slots = 0;
   for (const b of state.buildings.values()) {
-    if (militaryTypes.has(b.type)) count++;
+    if (militaryTypes.has(b.type)) slots += 2 * b.level;
   }
-  return 2 + 2 * count;
+  return 2 + slots;
 }
 
 export function moveUnitToBench(state: GameState, unitId: string): void {
@@ -566,6 +574,10 @@ export function craftEquipment(state: GameState, equipmentId: string): boolean {
   spendResources(state, def.craftCost);
 
   state.equipmentInventory.push({ ...def });
+
+  // Auto-equip on all roster units with empty slots
+  autoEquipAll(state);
+
   return true;
 }
 
@@ -644,6 +656,13 @@ export function autoEquip(state: GameState, unit: Unit): void {
   }
 }
 
+/** Auto-equip all roster units that have empty equipment slots */
+function autoEquipAll(state: GameState): void {
+  for (const unit of state.roster.values()) {
+    autoEquip(state, unit);
+  }
+}
+
 function applyEquipmentStats(unit: Unit, def: EquipmentDef): void {
   for (const [stat, value] of Object.entries(def.modifiers)) {
     if (value !== undefined && stat in unit.stats) {
@@ -691,11 +710,12 @@ export function purchaseTech(state: GameState, techId: string): boolean {
 
   applyTechEffect(state, tech.effect);
 
-  // Replace in shop only if maxed out
-  if (state.techShop && currentTier + 1 >= tech.maxTier) {
+  // Always replace purchased tech with a different one
+  if (state.techShop) {
     const idx = state.techShop.findIndex(t => t.id === techId);
     if (idx >= 0) {
       const remaining = TECH_UPGRADES.filter(t =>
+        t.id !== techId &&
         (state.purchasedTech.get(t.id) ?? 0) < t.maxTier &&
         !state.techShop!.some(s => s.id === t.id)
       );
@@ -749,6 +769,9 @@ function applyTechEffect(state: GameState, effect: TechEffect): void {
     case 'expand_map':
       expandMap(state);
       break;
+    case 'building_upgrade_unlock':
+      state.buildingUpgradeUnlocked = Math.max(state.buildingUpgradeUnlocked, effect.value);
+      break;
   }
 }
 
@@ -761,7 +784,7 @@ export function generateCardChoices(state: GameState): void {
   const usedKeys = new Set<string>();
 
   for (let i = 0; i < numChoices; i++) {
-    if (i === 0 && wave.isBoss) {
+    if (wave.isBoss) {
       const card = generateRelicCard(state);
       usedKeys.add(card.name);
       cards.push(card);

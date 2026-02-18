@@ -13,12 +13,15 @@ const ARENA_GAP = 40;
 /** Arena vertical center is at local y ≈ 90 (midpoint of -180..360 preview_full range) */
 const ARENA_VERTICAL_CENTER = 90;
 
-function computeArenaWorldX(gridRadius: number): number {
+/** Slot spacing and padding imported from arena layout constants */
+const ARENA_SLOT_SPACING = 50;
+const ARENA_PAD_X = 160;
+
+function computeArenaWorldX(gridRadius: number, battleWidth: number = 4): number {
   // Grid right edge: rightmost hex center x + hex horizontal extent
   const gridRightX = HEX_SIZE * 1.5 * gridRadius + HEX_SIZE;
-  // Arena left edge in local coords is -halfW. We need to know halfW, but it depends on
-  // battleWidth. Use a conservative estimate (battleWidth=4 → halfW=260).
-  const arenaHalfW = 260;
+  // Arena half-width computed dynamically from battle width
+  const arenaHalfW = Math.max(battleWidth, 4) * ARENA_SLOT_SPACING / 2 + ARENA_PAD_X;
   return gridRightX + ARENA_GAP + arenaHalfW;
 }
 
@@ -94,7 +97,7 @@ export class GameRenderer {
     this.buildingLayer = new Container();
     this.highlightLayer = new Container();
     this.arenaLayer = new Container();
-    this.arenaLayer.x = computeArenaWorldX(4); // default; updated by updateArenaPosition
+    this.arenaLayer.x = computeArenaWorldX(3); // default; updated by updateArenaPosition
     this.arenaLayer.y = -ARENA_VERTICAL_CENTER; // center arena content vertically at world y=0
 
     this.arena = new ArenaRenderer();
@@ -326,15 +329,17 @@ export class GameRenderer {
     }
   }
 
-  /** Reposition the arena layer based on the current grid radius */
-  updateArenaPosition(gridRadius: number): void {
-    this.arenaLayer.x = computeArenaWorldX(gridRadius);
+  /** Reposition the arena layer based on the current grid radius and battle width */
+  updateArenaPosition(gridRadius: number, battleWidth: number = 4): void {
+    this.arenaLayer.x = computeArenaWorldX(gridRadius, battleWidth);
   }
 
   /** Render the hex grid from game state */
   renderGrid(state: GameState): void {
     this.gridLayer.removeChildren();
-    this.updateArenaPosition(state.grid.radius);
+    this.buildingLayer.removeChildren();
+    const effectiveBattleWidth = 4 + (state.battleWidthBonus ?? 0);
+    this.updateArenaPosition(state.grid.radius, effectiveBattleWidth);
 
     for (const tile of state.grid.tiles.values()) {
       this.drawHexTile(tile, state);
@@ -470,6 +475,27 @@ export class GameRenderer {
           label.x = center.x;
           label.y = center.y + HEX_SIZE * 0.35;
           this.gridLayer.addChild(label);
+        }
+
+        // Train status indicator for military buildings (during build phase)
+        const militaryTypes = new Set(['barracks', 'archery_range', 'kennel', 'guardhouse']);
+        if (militaryTypes.has(building.type) && state.phase === 'build') {
+          const indicator = new Graphics();
+          const dotX = center.x + HEX_SIZE * 0.3;
+          const dotY = center.y - HEX_SIZE * 0.3;
+          if (state.trainedThisPhase.has(building.id)) {
+            // Already trained — dim red X
+            indicator.moveTo(dotX - 3, dotY - 3);
+            indicator.lineTo(dotX + 3, dotY + 3);
+            indicator.moveTo(dotX + 3, dotY - 3);
+            indicator.lineTo(dotX - 3, dotY + 3);
+            indicator.stroke({ color: 0xe06060, width: 1.5, alpha: 0.7 });
+          } else {
+            // Can train — green dot
+            indicator.circle(dotX, dotY, 3);
+            indicator.fill({ color: 0x60e060, alpha: 0.7 });
+          }
+          this.buildingLayer.addChild(indicator);
         }
       }
     }
